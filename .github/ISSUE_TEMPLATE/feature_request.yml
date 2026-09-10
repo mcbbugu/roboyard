@@ -1,0 +1,14 @@
+name: World idea / 世界设定
+description: Propose an interaction, behavior, or rule for the world.
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What should the robots be able to do? / 你想让它们做什么？
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: What would a person see? / 用户会看到怎样的体验？
+      description: A concrete scene is more useful than a list of technologies.

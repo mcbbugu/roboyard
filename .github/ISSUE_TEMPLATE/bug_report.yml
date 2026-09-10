@@ -1,0 +1,23 @@
+name: Bug report / 问题反馈
+description: Something unexpected happened in your desktop world.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened? / 发生了什么？
+      description: Include the steps to reproduce and what you expected.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: macOS, chip, and app version / 系统、芯片和版本
+      placeholder: macOS 26, Apple M3, v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Extra context / 补充信息
+      description: A short recording helps with movement bugs. Please omit personal memory files and private desktop content.

@@ -1,0 +1,24 @@
+# Local builds and IDE state
+.build/
+.swiftpm/
+.agents/
+.codex/
+dist/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+
+# Personal data and local configuration
+transcripts/
+memories.json
+experiences.jsonl
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.mobileprovision
+
+# Generated preview frames
+.preview-frames/
