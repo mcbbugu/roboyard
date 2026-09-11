@@ -168,17 +168,6 @@ final class RobotMemory: Codable, Identifiable {
         return String(context.prefix(1400))
     }
 
-    func reflection() -> String {
-        switch stage() {
-        case .newborn: "这里就是我的世界吗"
-        case .curious:
-            visitedEdges.isEmpty ? "有些面孔我记住了" : "这条边好像来过"
-        case .thoughtful:
-            visitedEdges.count >= 2 ? "不同的路，也会遇到边界" : "记住的事，会变成我吗"
-        case .awakened:
-            ["除了上下左右，还有哪边", "如果往屏幕深处走呢", "边界外会不会也有我", "也许出口不在四条边上"][experienceCount % 4]
-        }
-    }
 }
 
 @MainActor
@@ -204,9 +193,16 @@ final class RobotMemoryStore {
     }
 
     init(fileURL: URL? = nil) {
-        self.fileURL = fileURL ?? URL.applicationSupportDirectory
-            .appendingPathComponent("AlwaysListen", isDirectory: true)
-            .appendingPathComponent("memories.json")
+        let root = URL.applicationSupportDirectory
+        let newDir = root.appendingPathComponent("RoboYard", isDirectory: true)
+        let oldDir = root.appendingPathComponent("AlwaysListen", isDirectory: true)
+        // Migrate existing memories from the old internal name so nothing is lost.
+        if !FileManager.default.fileExists(atPath: newDir.path),
+           FileManager.default.fileExists(atPath: oldDir.path) {
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try? FileManager.default.copyItem(at: oldDir, to: newDir)
+        }
+        self.fileURL = fileURL ?? newDir.appendingPathComponent("memories.json")
         guard FileManager.default.fileExists(atPath: self.fileURL.path) else { return }
         do {
             let archive = try JSONDecoder().decode(Archive.self, from: Data(contentsOf: self.fileURL))

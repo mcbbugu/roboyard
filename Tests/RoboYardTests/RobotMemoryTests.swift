@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AlwaysListen
+@testable import RoboYard
 
 @MainActor
 struct RobotMemoryTests {

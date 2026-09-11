@@ -67,47 +67,4 @@ enum MBTI: Int, CaseIterable {
         }
     }
 
-    func fallback(_ event: CritterTalk.Event) -> String {
-        switch (self, event) {
-        case (.intj, .flee): "离远点"
-        case (.intj, .bump): "让开"
-        case (.intp, .flee): "啊？跑？"
-        case (.intp, .bump): "你是实体？"
-        case (.entj, .flee): "立刻撤离"
-        case (.entj, .bump): "排队"
-        case (.entp, .flee): "鼠标来抢戏"
-        case (.entp, .bump): "撞出火花了"
-        case (.infj, .flee): "轻一点…"
-        case (.infj, .bump): "没事吧"
-        case (.infp, .flee): "好突然"
-        case (.infp, .bump): "对不起啦"
-        case (.enfj, .flee): "大家跟上"
-        case (.enfj, .bump): "小心点呀"
-        case (.enfp, .flee): "哇跑起来！"
-        case (.enfp, .bump): "嘿你好啊"
-        case (.istj, .flee): "按规定躲避"
-        case (.istj, .bump): "看路"
-        case (.isfj, .flee): "别被点到"
-        case (.isfj, .bump): "撞疼没"
-        case (.estj, .flee): "快散"
-        case (.estj, .bump): "你挡道了"
-        case (.esfj, .flee): "快来这边"
-        case (.esfj, .bump): "哎呀对不住"
-        case (.istp, .flee): "嗯走了"
-        case (.istp, .bump): "哦"
-        case (.isfp, .flee): "躲一下…"
-        case (.isfp, .bump): "抱歉"
-        case (.estp, .flee): "冲对面"
-        case (.estp, .bump): "再来"
-        case (.esfp, .flee): "散场啦"
-        case (.esfp, .bump): "碰杯！"
-        case (_, .linger): "还盯着啊"
-        case (_, .idle): "晃着呢"
-        case (_, .chat): "嘿"
-        case (_, .scold): "站住"
-        case (_, .reflect): "我好像记得这里"
-        case (_, .flee): "跑"
-        case (_, .bump): "借过"
-        }
-    }
 }

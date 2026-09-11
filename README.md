@@ -6,6 +6,7 @@
   <img src="https://img.shields.io/badge/macOS-26%2B-171b2a" alt="macOS 26+" />
   <img src="https://img.shields.io/badge/Swift-6.2%2B-F05138" alt="Swift 6.2+" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a99cf5" alt="MIT license" /></a>
+  <a href="https://github.com/mcbbugu/roboyard/actions/workflows/ci.yml"><img src="https://github.com/mcbbugu/roboyard/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
 </p>
 
 <p align="center">
@@ -26,7 +27,7 @@ Keep a little robot crew on your Mac. Watch them roam across the screen, bump in
 - **Watch them meet.** Robots stop to chat or bump into each other. Their bodies occupy real space; bigger ones are harder to push.
 - **Get to know them.** Each robot keeps its own personality, encounters, conversations, and relationships across restarts.
 - **Watch them grow.** Recorded experiences make their bodies larger. The journal shows each robot’s progress and recent memories.
-- **Run their dialogue locally.** Connect an optional Ollama model for generated speech bubbles. Without it, built-in dialogue keeps the playground running.
+- **Run their dialogue locally.** Connect an optional Ollama model for generated speech bubbles. Without it, robots stay silent—silence is part of the design.
 
 Native Swift + AppKit. Lives in your menu bar. No cloud account or API key required.
 
@@ -87,12 +88,10 @@ The “awakening” is an authored progression of behavior and dialogue prompts.
 ## Where the memories live
 
 ```text
-~/Library/Application Support/AlwaysListen/
+~/Library/Application Support/RoboYard/
 ├── memories.json       # identities, counts, relationships, compact memories
 └── experiences.jsonl   # full recorded text history
 ```
-
-The directory and internal Swift module retain the original name `AlwaysListen` for compatibility with existing installations.
 
 The app reads pointer position, screen/window geometry, and application names. Application names can appear in memories and local dialogue prompts. It does not record audio, capture screenshots, or read document contents. Inference requests go to the local Ollama endpoint; downloading Ollama or its model is a separate network operation. Model weights are not bundled in this repository.
 

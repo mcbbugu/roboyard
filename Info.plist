@@ -5,9 +5,9 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
 	<key>CFBundleExecutable</key>
-	<string>AlwaysListen</string>
+	<string>RoboYard</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.bugu.always-listen</string>
+	<string>com.bugu.roboyard</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

@@ -4,7 +4,7 @@ RoboYard is an early experiment in desktop artificial life. Small, concrete cont
 
 ## Run locally
 
-You need macOS 26+ and Swift 6.2+ (Xcode 26+). Ollama is optional; the robots have built-in fallback dialogue.
+You need macOS 26+ and Swift 6.2+ (Xcode 26+). Ollama is optional; without a model the robots stay silent.
 
 ```sh
 swift test
@@ -37,7 +37,7 @@ Never commit personal transcripts, memory archives, API keys, or screenshots con
 | `RobotMark.swift` | Native vector rendering |
 | `RobotJournalView.swift` | Growth journal |
 
-The Swift module and persistence directory retain the original internal name `AlwaysListen` so existing installations keep their memories. The public app name is RoboYard.
+Memories live in `~/Library/Application Support/RoboYard/`. On first launch after the rename, the app copies any existing `AlwaysListen` directory over so nothing is lost.
 
 ## Reproduce the visuals
 
@@ -47,6 +47,6 @@ The Swift module and persistence directory retain the original internal name `Al
 
 Compile these Swift entry points with `swiftc -parse-as-library`. JournalPreview also needs the RobotMemory, MBTI, CritterTalk, RobotMark, and RobotJournalView source files. The capture helper takes no arguments; PrepareRecording takes an input movie and output directory, and JournalPreview takes an output directory. Review all frames before publishing any screen recording.
 
-## CI setup
+## CI
 
-The ready-to-use workflow is in `docs/development/ci.yml`. Move it to `.github/workflows/ci.yml` using a GitHub credential with workflow permission to enable automated builds. The initial release was tested locally.
+CI runs on every push to `main` and on pull requests (`.github/workflows/ci.yml`): `swift test`, `scripts/bundle.sh`, signature check, and an uploaded macOS build artifact.

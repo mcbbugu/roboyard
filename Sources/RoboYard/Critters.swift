@@ -166,15 +166,16 @@ final class Critters: NSObject {
         }
         let memory = bot.memory.context(kind: event.memoryKind, subject: other.map { String($0.id) })
         Task { @MainActor in
-            let line = await CritterTalk.shared.speak(event: event, vibe: vibe, other: otherVibe, app: app, urgent: urgent, memory: memory)
             guard crawlOn, bots.contains(where: { $0 === bot }) else { return }
-            let text = line ?? (event == .reflect ? bot.memory.reflection() : bot.mbti.fallback(event))
-            if event == .reflect { bot.memory.reflect(text) }
-            else { bot.memory.remember(.speech, subject: "self", detail: text) }
-            if let other, bots.contains(where: { $0 === other }) {
-                other.memory.remember(.speech, subject: "\(bot.id)", detail: text)
+            guard let line = await CritterTalk.shared.speak(event: event, vibe: vibe, other: otherVibe, app: app, urgent: urgent, memory: memory) else {
+                return
             }
-            popBubble(text: text, now: CACurrentMediaTime(), bot: bot)
+            if event == .reflect { bot.memory.reflect(line) }
+            else { bot.memory.remember(.speech, subject: "self", detail: line) }
+            if let other, bots.contains(where: { $0 === other }) {
+                other.memory.remember(.speech, subject: "\(bot.id)", detail: line)
+            }
+            popBubble(text: line, now: CACurrentMediaTime(), bot: bot)
         }
     }
 
@@ -292,7 +293,7 @@ final class Critters: NSObject {
             let layer = w[kCGWindowLayer as String] as? Int ?? 0
             if layer != 0 { continue }
             let owner = w[kCGWindowOwnerName as String] as? String ?? ""
-            if owner.isEmpty || owner == "AlwaysListen" || owner == "RoboYard" { continue }
+            if owner.isEmpty || owner == "RoboYard" { continue }
             guard let b = w[kCGWindowBounds as String] as? [String: Any],
                   let x = (b["X"] as? NSNumber)?.doubleValue,
                   let y = (b["Y"] as? NSNumber)?.doubleValue,

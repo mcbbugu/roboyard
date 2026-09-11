@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "AlwaysListen",
+    name: "RoboYard",
     platforms: [.macOS(.v26)],
     products: [
-        .executable(name: "AlwaysListen", targets: ["AlwaysListen"]),
+        .executable(name: "RoboYard", targets: ["RoboYard"]),
     ],
     targets: [
-        .executableTarget(name: "AlwaysListen"),
-        .testTarget(name: "AlwaysListenTests", dependencies: ["AlwaysListen"]),
+        .executableTarget(name: "RoboYard"),
+        .testTarget(name: "RoboYardTests", dependencies: ["RoboYard"]),
     ]
 )

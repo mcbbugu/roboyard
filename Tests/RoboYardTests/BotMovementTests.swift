@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-@testable import AlwaysListen
+@testable import RoboYard
 
 @MainActor
 struct BotMovementTests {

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AlwaysListenApp: App {
+struct RoboYardApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {

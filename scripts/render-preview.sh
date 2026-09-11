@@ -6,7 +6,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p docs/assets Resources "$WORK/RoboYard.iconset"
 swiftc -O -parse-as-library -module-cache-path "$WORK/cache" \
-  Sources/AlwaysListen/{RobotMemory,MBTI,CritterTalk,RobotMark,Critters,BotPhysics}.swift \
+  Sources/RoboYard/{RobotMemory,MBTI,CritterTalk,RobotMark,Critters,BotPhysics}.swift \
   scripts/Preview.swift -o "$WORK/render"
 "$WORK/render" "$WORK/frames"
 cp "$WORK/frames/world.gif" docs/assets/world.gif
