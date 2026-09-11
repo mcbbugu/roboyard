@@ -3,7 +3,7 @@
 <p align="center"><b>把桌面变成机器人的游乐场。</b><br />
 <a href="https://github.com/mcbbugu/roboyard/releases">下载</a> · <a href="#开始养几只">开始使用</a> · <a href="README.md">English</a> · <a href="CONTRIBUTING.md">参与开发</a></p>
 
-在 Mac 上养一群小机器人。看它们四处爬行、碰撞、停下来聊天；把鼠标凑过去，它们还会逃跑。打开成长记录，看看它们记住了什么，以及这些经历让它们长大了多少。
+在 Mac 上养一群小机器人。看它们四处爬行、碰撞、停下来聊天；把鼠标凑过去，它们还会逃跑。打开仓库轮换谁在桌上，打开成长记录看看它们记住了什么。
 
 <p align="center"><img src="docs/assets/world.gif" alt="机器人走动、碰撞、聊天的近景演示" width="960" /></p>
 
@@ -11,28 +11,29 @@
 
 ## 可以怎么玩
 
-- **放一群出来**：菜单栏选择 4–32 只机器人，随时显示或隐藏。
+- **放一群出来**：仓库编制 32 只，桌上同时最多 4–16 只。
 - **逗逗它们**：把鼠标靠近，看它们逃跑；平时会闲逛、休息、沿着屏幕边缘爬行。
-- **围观社交现场**：相遇时停下来聊天，也会撞到彼此。身体真的占地方，大个子更难被推开。
+- **围观社交现场**：相遇会聊天。熟了聊得更久，每一句要接对方刚说的。
+- **送回去充电**：没电的爬向菜单栏图标，进仓库消失，充满再爬出来。
 - **认识每一只**：每只都有自己的性格、经历、对话和关系，重启后仍然记得。
 - **慢慢养大**：记录下来的经历推动体型成长；打开成长记录，查看累计字数和最近的见闻。
-- **接上本地 AI**：可选 Ollama 模型生成文字气泡；没装模型，机器人就保持沉默——沉默也是设计的一部分。
+- **接上本地或云端**：默认 Ollama，也可以填 DeepSeek Key。没模型就沉默。
 
-原生 Swift / AppKit 菜单栏应用，不需要云端账号或 API Key。
+原生 Swift / AppKit 菜单栏应用。本地对话不需要云端账号。
 
 ## 实际运行画面
+
+<p align="center">
+  <img src="docs/assets/warehouse.png" alt="仓库窗口：32 只机器人、电量条、派上桌或叫回来" width="720" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/journal.png" alt="成长记录：记忆、电量、谁在桌上" width="720" />
+</p>
 
 [![RoboYard 在干净桌面背景上的实机画面](docs/assets/desktop.gif)](https://github.com/mcbbugu/roboyard/releases/download/v0.1.0/RoboYard-demo.mp4)
 
 **[观看桌面录屏](https://github.com/mcbbugu/roboyard/releases/download/v0.1.0/RoboYard-demo.mp4)** · 真实运行的应用，使用专门准备的录屏背景。
-
-<details>
-<summary><b>打开成长记录，看看它们记住了什么</b></summary>
-
-<img src="docs/assets/journal.png" alt="真实成长记录界面，使用隔离的示例记忆" width="620" />
-
-示例记忆用于展示，非私人历史记录。
-</details>
 
 ## 开始养几只
 
@@ -61,7 +62,7 @@ open dist/RoboYard.app
 ollama pull qwen3.5:2b
 ```
 
-应用连接 `http://127.0.0.1:11434`。若使用纯命令行版 Ollama，需要先运行 `ollama serve`。
+应用默认连接 `http://127.0.0.1:11434`。菜单栏可选本地 Ollama，或填 DeepSeek API Key 走云端（默认 `deepseek-chat`）。若使用纯命令行版 Ollama，需要先运行 `ollama serve`。菜单会显示是否连上；没连上就保持沉默。
 
 目前界面和台词是中文。「说话」指文字气泡，没有麦克风录音，也没有语音播放。
 
@@ -81,7 +82,7 @@ ollama pull qwen3.5:2b
 └── experiences.jsonl   # 原始文本经历
 ```
 
-应用读取鼠标位置、屏幕/窗口几何信息和应用名称。应用名称可能进入记忆与本地模型提示；不会录音、截图或读取文档内容。推理请求只发往本机 Ollama。Ollama 与模型下载是独立的网络操作，模型权重不包含在本仓库中。
+应用读取鼠标位置、屏幕/窗口几何信息和应用名称。应用名称可能进入记忆与模型提示；不会录音、截图或读取文档内容。推理请求默认发往本机 Ollama；若你改选云端 DeepSeek，提示会出境。Ollama 与模型下载是独立的网络操作，模型权重不包含在本仓库中。详见 [SECURITY.md](SECURITY.md)。
 
 ## 一起把这个世界做得更有意思
 

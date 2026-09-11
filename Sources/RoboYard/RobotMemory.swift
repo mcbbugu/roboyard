@@ -23,7 +23,7 @@ enum GrowthStage: Int, Codable, CaseIterable {
 }
 
 enum MemoryKind: String, Codable, CaseIterable {
-    case mouse, friend, collision, place, boundary, reflection, speech
+    case mouse, friend, collision, place, boundary, reflection, speech, quote
 }
 
 struct RobotExperience: Codable, Identifiable {
@@ -32,11 +32,14 @@ struct RobotExperience: Codable, Identifiable {
     let kind: MemoryKind
     let subject: String
     let detail: String
+    var depth: Int? = nil
 }
 
 struct RobotRelationship: Codable {
     var meetings = 0
     var collisions = 0
+    var gap: Double?
+    var reach: Double?
 }
 
 // Profiles are owned and mutated by the main-actor store and Bot instances.
@@ -54,6 +57,12 @@ final class RobotMemory: Codable, Identifiable {
     private(set) var keyMemories: [String: RobotExperience] = [:]
     private(set) var archivePending: [RobotExperience] = []
     private var recentKeys: [String: Date] = [:]
+    private var weightedRaw: Double?
+    private var livedRaw: Double?
+    private var computeRaw: Double?
+    private var transfersRaw: Int?
+    private var refusedAt: Date?
+    private var crossedAt: Int?
 
     init(id: Int, personality: Int, bornAt: Date = .now) {
         self.id = id
@@ -63,8 +72,8 @@ final class RobotMemory: Codable, Identifiable {
 
     var name: String { String(format: "%02d 号", id) }
     var mbti: MBTI { MBTI(rawValue: personality) ?? .infp }
+    var refused: Bool { refusedAt != nil }
 
-    // The world measures growth in accumulated characters, never elapsed time.
     static let awakeningTextCount = 100_000
 
     func maturity() -> Double {
@@ -84,11 +93,19 @@ final class RobotMemory: Codable, Identifiable {
         16 + 16 * pow(maturity(), 0.4)
     }
 
+    func meetings(with otherID: Int) -> Int {
+        relationships[otherID]?.meetings ?? 0
+    }
+
+    // Strangers trade one line each. Old friends keep going.
+    func chatRounds(with otherID: Int, pal: Bool) -> Int {
+        min(5, 1 + meetings(with: otherID) / 3 + (pal ? 1 : 0))
+    }
+
     @discardableResult
     func remember(_ kind: MemoryKind, subject: String = "", detail: String,
                   now: Date = .now) -> Bool {
         let key = "\(kind.rawValue):\(subject)"
-        // Repeated frames or repeatedly poking the same robot do not create new memories.
         let cooldown: Double
         switch kind {
         case .collision, .mouse: cooldown = 10
@@ -96,7 +113,7 @@ final class RobotMemory: Codable, Identifiable {
         case .boundary: cooldown = 60
         case .place: cooldown = 300
         case .reflection: cooldown = 30
-        case .speech: cooldown = 2
+        case .speech, .quote: cooldown = 2
         }
         if let last = recentKeys[key], now.timeIntervalSince(last) < cooldown { return false }
         recentKeys = recentKeys.filter { now.timeIntervalSince($0.value) < 300 }
@@ -110,7 +127,7 @@ final class RobotMemory: Codable, Identifiable {
                                          subject: String(subject.prefix(80)), detail: text)
         experiences.append(experience)
         archivePending.append(experience)
-        if kind != .speech {
+        if kind != .speech, kind != .quote {
             keyMemories[key] = experience
             if keyMemories.count > 96, let oldest = keyMemories.min(by: { $0.value.date < $1.value.date }) {
                 keyMemories.removeValue(forKey: oldest.key)
@@ -164,7 +181,11 @@ final class RobotMemory: Codable, Identifiable {
         let familiar = friend.flatMap { $0.value.meetings > 0 ? "最熟悉\($0.key)号，一起聊过\($0.value.meetings)次。" : nil } ?? ""
         let edges = visitedEdges.sorted().map { ["下", "右", "上", "左"][$0] }.joined(separator: "、")
         let boundary = edges.isEmpty ? "" : "已经亲自走到过\(edges)边。"
-        let context = "你是\(name)，成长阶段：\(stage().title)。\(stage().outlook)\(familiar)\(boundary)记忆片段：\(recent.isEmpty ? "刚刚来到桌面" : recent)。台词要符合这些经历，不要编造未发生的往事。"
+        let with = subject.flatMap { id in
+            let n = meetings(with: Int(id) ?? -1)
+            return n > 0 ? "眼前是\(id)号，你们聊过\(n)次。" : nil
+        } ?? ""
+        let context = "你是\(name)，成长阶段：\(stage().title)。\(stage().outlook)\(familiar)\(with)\(boundary)记忆片段：\(recent.isEmpty ? "刚刚来到桌面" : recent)。台词要符合这些经历，不要编造未发生的往事。"
         return String(context.prefix(1400))
     }
 

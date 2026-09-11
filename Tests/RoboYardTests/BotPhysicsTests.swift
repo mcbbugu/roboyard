@@ -79,6 +79,40 @@ struct BotPhysicsTests {
         #expect(a.point == b.point)
     }
 
+    @Test
+    func plantedBotsDoNotSlideFromCrowding() {
+        let a = makeBot(id: 1, x: 400)
+        let b = makeBot(id: 2, x: 430)
+        a.act = .sit
+        b.act = .sit
+        a.actUntil = 1000
+        b.actUntil = 1000
+        let before = a.point
+        for i in 0..<30 {
+            _ = BotPhysics.advance([a, b], now: 1 + Double(i) / 60, dt: 1.0 / 60)
+        }
+        #expect(hypot(a.x - before.x, a.y - before.y) < 0.15)
+        #expect(a.act == .sit)
+    }
+
+    @Test
+    func overlappingSittersUnstickOnceThenStay() {
+        let a = makeBot(id: 1, x: 400)
+        let b = makeBot(id: 2, x: 408)
+        a.act = .sit
+        b.act = .sit
+        a.actUntil = 1000
+        b.actUntil = 1000
+        _ = BotPhysics.resolve([a, b], now: 1)
+        let stayA = a.point
+        let stayB = b.point
+        for i in 0..<45 {
+            _ = BotPhysics.advance([a, b], now: 2 + Double(i) / 60, dt: 1.0 / 60)
+        }
+        #expect(hypot(a.x - stayA.x, a.y - stayA.y) < 0.2)
+        #expect(hypot(b.x - stayB.x, b.y - stayB.y) < 0.2)
+    }
+
     private func makeBot(id: Int, x: CGFloat, memory: RobotMemory? = nil) -> Bot {
         let bot = Bot(id: id, mbti: .intj, home: home, screenIndex: 0, memory: memory)
         bot.x = x

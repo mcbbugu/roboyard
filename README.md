@@ -14,7 +14,7 @@
   <a href="https://github.com/mcbbugu/roboyard/releases">Download</a> · <a href="#quick-start">Quick start</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-Keep a little robot crew on your Mac. Watch them roam across the screen, bump into each other, stop for a chat, and scatter when your pointer gets too close. Open their journal to see what they remember—and watch them grow as those experiences add up.
+Keep a little robot crew on your Mac. Watch them roam across the screen, bump into each other, stop for a chat, and scatter when your pointer gets too close. Open the warehouse to rotate who is on the desk; open their journal to see what they remember.
 
 <p align="center"><img src="docs/assets/world.gif" alt="RoboYard robots walking, bumping into each other and chatting" width="960" /></p>
 
@@ -22,29 +22,29 @@ Keep a little robot crew on your Mac. Watch them roam across the screen, bump in
 
 ## Your desktop is the playground
 
-- **Let a crew loose.** Choose 4–32 robots from the menu bar. Show or hide them whenever you like.
+- **Let a crew loose.** 32 robots live in the warehouse. Choose how many (4–16) may roam the desk at once.
 - **Get in their way.** Move your pointer close and watch them flee. They roam, rest, and crawl along screen edges.
-- **Watch them meet.** Robots stop to chat or bump into each other. Their bodies occupy real space; bigger ones are harder to push.
+- **Watch them meet.** Robots stop to talk. Friends keep going for more turns, and each line has to answer the last.
+- **Send them home.** Low battery walks to the menu bar icon and disappears into the warehouse to charge, then crawls back out.
 - **Get to know them.** Each robot keeps its own personality, encounters, conversations, and relationships across restarts.
 - **Watch them grow.** Recorded experiences make their bodies larger. The journal shows each robot’s progress and recent memories.
-- **Run their dialogue locally.** Connect an optional Ollama model for generated speech bubbles. Without it, robots stay silent—silence is part of the design.
+- **Run their dialogue locally—or in the cloud.** Ollama by default, or paste a DeepSeek API key. Without a model, robots stay silent.
 
-Native Swift + AppKit. Lives in your menu bar. No cloud account or API key required.
+Native Swift + AppKit. Lives in your menu bar. Local voice needs no cloud account.
 
 ## In action
+
+<p align="center">
+  <img src="docs/assets/warehouse.png" alt="Warehouse window: 32 robots, battery bars, send out or call back" width="720" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/journal.png" alt="Growth journal: memories, charge, and who is on the desk" width="720" />
+</p>
 
 [![RoboYard running on a clean desktop backdrop](docs/assets/desktop.gif)](https://github.com/mcbbugu/roboyard/releases/download/v0.1.0/RoboYard-demo.mp4)
 
 **[Watch the desktop recording](https://github.com/mcbbugu/roboyard/releases/download/v0.1.0/RoboYard-demo.mp4)** · Actual running app over a clean recording backdrop.
-
-<details>
-<summary><b>Inside a robot’s memory: the Growth Journal</b></summary>
-
-<img src="docs/assets/journal.png" alt="Actual journal UI rendered with synthetic sample memories" width="620" />
-
-Actual app UI with synthetic sample memories. The journal UI and dialogue are currently in Chinese.
-
-</details>
 
 ## Quick start
 
@@ -73,7 +73,7 @@ Install and run [Ollama](https://ollama.com), then:
 ollama pull qwen3.5:2b
 ```
 
-RoboYard connects to `http://127.0.0.1:11434`. If you use the Ollama CLI without its desktop app, start the server with `ollama serve`.
+RoboYard talks to `http://127.0.0.1:11434` by default. From the menu bar you can keep using Ollama, or switch to cloud DeepSeek by pasting an API key (model defaults to `deepseek-chat`). If you use the Ollama CLI without its desktop app, start the server with `ollama serve`. The menu shows when the endpoint is reachable; if it isn’t, robots stay silent.
 
 Dialogue and the journal are currently in Chinese. “Voice” here means their written speech bubbles; the app does not use a microphone or play synthesized speech.
 
@@ -93,7 +93,7 @@ The “awakening” is an authored progression of behavior and dialogue prompts.
 └── experiences.jsonl   # full recorded text history
 ```
 
-The app reads pointer position, screen/window geometry, and application names. Application names can appear in memories and local dialogue prompts. It does not record audio, capture screenshots, or read document contents. Inference requests go to the local Ollama endpoint; downloading Ollama or its model is a separate network operation. Model weights are not bundled in this repository.
+The app reads pointer position, screen/window geometry, and application names. Application names can appear in memories and local dialogue prompts. It does not record audio, capture screenshots, or read document contents. Inference requests go to the configured local Ollama endpoint (loopback by default) or, if you opt in, to DeepSeek. Downloading Ollama or its model is a separate network operation. Model weights are not bundled in this repository. See [SECURITY.md](SECURITY.md).
 
 ## Build a more interesting world
 

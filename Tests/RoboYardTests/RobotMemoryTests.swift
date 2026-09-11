@@ -36,6 +36,21 @@ struct RobotMemoryTests {
     }
 
     @Test
+    func oldFriendsTalkLongerThanStrangers() {
+        let memory = RobotMemory(id: 1, personality: MBTI.infp.rawValue)
+        #expect(memory.chatRounds(with: 2, pal: false) == 1)
+        #expect(memory.chatRounds(with: 2, pal: true) == 2)
+        var tick = Date(timeIntervalSince1970: 0)
+        for _ in 0..<9 {
+            tick = tick.addingTimeInterval(20)
+            memory.meet(2, friendly: true, now: tick)
+        }
+        #expect(memory.meetings(with: 2) == 9)
+        #expect(memory.chatRounds(with: 2, pal: false) == 4)
+        #expect(memory.chatRounds(with: 2, pal: true) == 5)
+    }
+
+    @Test
     func retrievesRelevantExperienceAfterItLeavesRecentMemory() {
         let memory = RobotMemory(id: 1, personality: MBTI.infp.rawValue)
         let start = Date(timeIntervalSince1970: 1000)

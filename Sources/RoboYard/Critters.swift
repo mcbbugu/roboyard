@@ -7,7 +7,8 @@ final class Critters: NSObject {
 
     static let crawlKey = "critter.crawl"
     static let countKey = "critter.count"
-    static let countChoices = [4, 8, 12, 16, 24, 32]
+    static let countChoices = [4, 8, 12, 16]
+    static let rosterSize = ChargeLaw.roster
 
     var crawlOn: Bool {
         get { UserDefaults.standard.object(forKey: Self.crawlKey) as? Bool ?? true }
@@ -16,16 +17,18 @@ final class Critters: NSObject {
 
     var count: Int {
         get {
-            let n = UserDefaults.standard.object(forKey: Self.countKey) as? Int ?? 16
-            return min(32, max(1, n))
+            let n = UserDefaults.standard.object(forKey: Self.countKey) as? Int ?? 8
+            return min(16, max(4, n))
         }
         set {
-            UserDefaults.standard.set(min(32, max(1, newValue)), forKey: Self.countKey)
-            resetCrawlers()
+            UserDefaults.standard.set(min(16, max(4, newValue)), forKey: Self.countKey)
+            trimYardToCap()
         }
     }
 
-    private var bots: [Bot] = []
+    var nestAnchor: CGPoint = .zero
+    private(set) var colonists: [Colonist] = []
+    private var bots: [Bot] { colonists.compactMap(\.bot) }
     private var swarms: [SwarmLayer] = []
     private var bubbles: [Bubble] = []
     private var timer: Timer?
@@ -35,8 +38,10 @@ final class Critters: NSObject {
     private var mouseWasNear = false
     private var lingerApp = ""
     private var lingerSince = CACurrentMediaTime()
+    private var nextLinger = CACurrentMediaTime() + 40
     private var nextIdle = CACurrentMediaTime() + 50
     private var nextSave = CACurrentMediaTime() + 15
+    private var nextPing = CACurrentMediaTime() + 5
 
     func start() {
         guard observers.isEmpty else { return }
@@ -47,6 +52,11 @@ final class Critters: NSObject {
             },
         ]
         apply()
+        if colonists.isEmpty { bootColony() }
+        if crawlOn {
+            ensureOverlays()
+            fillYard()
+        }
         let timer = Timer(timeInterval: 1.0 / 60.0, target: self, selector: #selector(objcTick), userInfo: nil, repeats: true)
         timer.tolerance = 0.004
         RunLoop.main.add(timer, forMode: .common)
@@ -63,16 +73,61 @@ final class Critters: NSObject {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         RobotMemoryStore.shared.save()
+        ChargeStore.save(colonists)
         clearCrawlers()
         clearBubbles()
     }
 
     func apply() {
-        if !crawlOn {
-            RobotMemoryStore.shared.save()
-            clearCrawlers()
+        if crawlOn {
+            ensureOverlays()
+            fillYard()
+        } else {
+            recallAll()
             clearBubbles()
         }
+    }
+
+    var yardCount: Int { colonists.filter { $0.post == .yard || $0.post == .emerging }.count }
+    var homingCount: Int { colonists.filter { $0.post == .homing }.count }
+    var warehouseCount: Int { colonists.filter { $0.post == .warehouse }.count }
+    var chargingCount: Int { colonists.filter { $0.post == .warehouse && $0.charge < 1 }.count }
+
+    var summaryLine: String {
+        "桌上 \(yardCount)/\(count) · 仓库 \(warehouseCount)"
+    }
+
+    func roster() -> [YardRow] {
+        colonists.map {
+            YardRow(id: $0.id, name: $0.name, code: $0.mbti.code, stage: $0.memory.stage().title,
+                    charge: $0.charge, post: $0.post, refused: $0.memory.refused,
+                    bodySize: $0.memory.bodySize())
+        }
+    }
+
+    func ping(_ id: Int, now: CFTimeInterval = CACurrentMediaTime()) {
+        guard let colonist = colonists.first(where: { $0.id == id }) else { return }
+        colonist.highlightUntil = now + 2.4
+    }
+
+    func toggle(_ id: Int) {
+        guard let colonist = colonists.first(where: { $0.id == id }) else { return }
+        ping(id)
+        switch colonist.post {
+        case .yard, .emerging:
+            sendHome(colonist)
+        case .homing:
+            if colonist.charge >= ChargeLaw.talkBelow, deskRoom() > 0 {
+                colonist.post = .yard
+                colonist.bot?.aim = nil
+            }
+        case .warehouse:
+            release(colonist)
+        }
+    }
+
+    private func deskRoom() -> Int {
+        count - colonists.filter { $0.post == .yard || $0.post == .emerging || $0.post == .homing }.count
     }
 
     private func tick() {
@@ -82,27 +137,42 @@ final class Critters: NSObject {
         lastTick = now
         tickBots(now: now, dt: dt, lid: RobotMark.lid(at: now))
         tickBubbles(now: now)
+        if now >= nextPing {
+            nextPing = now + 60
+            Task { @MainActor in await CritterTalk.shared.refreshStatus() }
+        }
         if now >= nextSave {
             nextSave = now + 15
             RobotMemoryStore.shared.save()
+            ChargeStore.save(colonists)
         }
     }
 
     private func tickBots(now: CFTimeInterval, dt: CGFloat, lid: CGFloat) {
-        guard crawlOn else { return }
-        if bots.isEmpty { spawnSwarm() }
+        if colonists.isEmpty {
+            bootColony()
+            if crawlOn { fillYard() }
+        }
+        ensureOverlays()
+        tickCharge(now: now, dt: dt)
+        rotatePosts(now: now)
+        let visible = bots
+        guard crawlOn || !visible.isEmpty else { return }
         scareFromMouse(now: now)
         meet(now: now)
         maybeLinger(now: now)
         maybeIdle(now: now)
-        let contacts = BotPhysics.advance(bots, now: now, dt: dt)
+        shareCharge(dt: dt)
+        let contacts = BotPhysics.advance(visible, now: now, dt: dt)
         collide(contacts, now: now)
         for swarm in swarms {
             let box = swarm.panel.frame
             swarm.canvas.lid = lid
+            swarm.canvas.highlights = Set(colonists.filter { $0.highlightUntil > now }.map(\.id))
+            swarm.canvas.bots = visible.filter { $0.screenIndex == swarm.index }
             for bot in swarm.canvas.bots {
                 bot.home = box
-                bot.clampHome()
+                if bot.aim == nil { bot.clampHome() }
             }
             swarm.canvas.needsDisplay = true
         }
@@ -122,6 +192,10 @@ final class Critters: NSObject {
             }
             if d < 36 {
                 closeCount += 1
+                if let colonist = owner(c) {
+                    colonist.charge = ChargeLaw.clamp(colonist.charge - ChargeLaw.scareCost)
+                }
+                c.aim = nil
                 c.flee(from: mouse, now: now, boost: 1)
             }
         }
@@ -145,37 +219,71 @@ final class Critters: NSObject {
             lingerSince = now
             return
         }
-        guard now - lingerSince > 42, let c = bots.randomElement(), !app.isEmpty else { return }
-        lingerSince = now + 30
-        say(.linger, bot: c, other: nil)
+        guard now >= nextLinger, now - lingerSince > 42,
+              let c = yardBots().randomElement(), !app.isEmpty else { return }
+        nextLinger = now + CGFloat.random(in: 50...80)
+        say(.linger, bot: c, other: nil, scene: app)
     }
 
     private func maybeIdle(now: CFTimeInterval) {
-        guard now >= nextIdle, !mouseWasNear, let c = bots.randomElement() else { return }
+        guard now >= nextIdle, !mouseWasNear,
+              let c = yardBots().filter({ !$0.memory.refused && ChargeLaw.canTalk(owner($0)?.charge ?? 0) }).randomElement() else { return }
         nextIdle = now + CGFloat.random(in: 55...95)
         say(c.memory.stage() == .newborn ? .idle : .reflect, bot: c, other: nil)
     }
 
-    private func say(_ event: CritterTalk.Event, bot: Bot, other: Bot?) {
+    private func say(_ event: CritterTalk.Event, bot: Bot, other: Bot?, scene: String? = nil, replyTo: String? = nil) {
+        Task { @MainActor in
+            _ = await utter(event, bot: bot, other: other, scene: scene, replyTo: replyTo)
+        }
+    }
+
+    @discardableResult
+    private func utter(_ event: CritterTalk.Event, bot: Bot, other: Bot?, scene: String? = nil, replyTo: String? = nil) async -> String? {
+        guard !bot.memory.refused else { return nil }
+        if event != .flee, !ChargeLaw.canTalk(owner(bot)?.charge ?? 0) { return nil }
+        if event != .flee, owner(bot)?.post != .yard { return nil }
         let vibe = bot.mbti.vibe
         let otherVibe = other.map(\.mbti.vibe)
         let urgent = event == .flee || event == .chat || event == .scold
-        let app = appName(at: bot.point)
+        let app = scene ?? WindowOwner.at(bot.point)
         if event == .linger || event == .idle, let app, !app.isEmpty {
             bot.memory.remember(.place, subject: app, detail: "陪着人待在\(app)旁边")
         }
         let memory = bot.memory.context(kind: event.memoryKind, subject: other.map { String($0.id) })
+        guard crawlOn, bots.contains(where: { $0 === bot }) else { return nil }
+        guard let line = await CritterTalk.shared.speak(event: event, vibe: vibe, other: otherVibe, app: app, urgent: urgent, memory: memory, replyTo: replyTo) else {
+            return nil
+        }
+        if event == .reflect { bot.memory.reflect(line) }
+        else { bot.memory.remember(.speech, subject: "self", detail: line) }
+        if let other, bots.contains(where: { $0 === other }) {
+            other.memory.remember(.speech, subject: "\(bot.id)", detail: line)
+        }
+        bot.lastSpoken = line
+        owner(bot)?.charge = ChargeLaw.clamp((owner(bot)?.charge ?? 0) - ChargeLaw.talkCost)
+        popBubble(text: line, now: CACurrentMediaTime(), bot: bot)
+        return line
+    }
+
+    private func converse(_ a: Bot, _ b: Bot, now: CFTimeInterval) {
+        let pal = a.mbti.fits(b.mbti)
+        let rounds = max(a.memory.chatRounds(with: b.id, pal: pal),
+                         b.memory.chatRounds(with: a.id, pal: pal))
+        a.memory.meet(b.id, friendly: true)
+        b.memory.meet(a.id, friendly: true)
+        let span = CGFloat(rounds) * 14
+        Bot.pairTalk(a, b, now: now, secs: span...(span + 4))
         Task { @MainActor in
-            guard crawlOn, bots.contains(where: { $0 === bot }) else { return }
-            guard let line = await CritterTalk.shared.speak(event: event, vibe: vibe, other: otherVibe, app: app, urgent: urgent, memory: memory) else {
-                return
+            var last: String?
+            for _ in 0..<rounds {
+                guard crawlOn, bots.contains(where: { $0 === a }), bots.contains(where: { $0 === b }),
+                      CACurrentMediaTime() < a.chatUntil else { return }
+                last = await utter(.chat, bot: a, other: b, replyTo: last)
+                guard crawlOn, bots.contains(where: { $0 === a }), bots.contains(where: { $0 === b }),
+                      CACurrentMediaTime() < a.chatUntil else { return }
+                last = await utter(.chat, bot: b, other: a, replyTo: last)
             }
-            if event == .reflect { bot.memory.reflect(line) }
-            else { bot.memory.remember(.speech, subject: "self", detail: line) }
-            if let other, bots.contains(where: { $0 === other }) {
-                other.memory.remember(.speech, subject: "\(bot.id)", detail: line)
-            }
-            popBubble(text: line, now: CACurrentMediaTime(), bot: bot)
         }
     }
 
@@ -185,19 +293,11 @@ final class Critters: NSObject {
             for j in (i + 1)..<bots.count {
                 let a = bots[i]
                 let b = bots[j]
-                guard a.screenIndex == b.screenIndex, a.mbti.fits(b.mbti) else { continue }
+                guard a.screenIndex == b.screenIndex else { continue }
+                guard owner(a)?.post == .yard, owner(b)?.post == .yard else { continue }
                 let d = hypot(a.x - b.x, a.y - b.y)
                 guard d < a.collisionRadius + b.collisionRadius + 12, d > 8, a.canSocial(now: now), b.canSocial(now: now) else { continue }
-                Bot.pairTalk(a, b, now: now)
-                a.memory.meet(b.id, friendly: true)
-                b.memory.meet(a.id, friendly: true)
-                say(.chat, bot: a, other: b)
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 1_100_000_000)
-                    guard crawlOn, bots.contains(where: { $0 === a }), bots.contains(where: { $0 === b }),
-                          CACurrentMediaTime() < a.chatUntil else { return }
-                    say(.chat, bot: b, other: a)
-                }
+                converse(a, b, now: now)
             }
         }
     }
@@ -208,7 +308,9 @@ final class Critters: NSObject {
             let b = contact.b
             a.memory.meet(b.id, friendly: false)
             b.memory.meet(a.id, friendly: false)
-            guard a.canSocial(now: now), b.canSocial(now: now), !a.mbti.fits(b.mbti) else { continue }
+            owner(a)?.charge = ChargeLaw.clamp((owner(a)?.charge ?? 0) - ChargeLaw.bumpCost)
+            owner(b)?.charge = ChargeLaw.clamp((owner(b)?.charge ?? 0) - ChargeLaw.bumpCost)
+            guard a.canSocial(now: now), b.canSocial(now: now) else { continue }
             Bot.pairTalk(a, b, now: now, secs: 2.4...3.8)
             say(.scold, bot: a, other: b)
         }
@@ -282,72 +384,245 @@ final class Critters: NSObject {
         return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
-    private func appName(at cocoa: CGPoint) -> String? {
-        let primary = NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main
-        guard let primary else { return NSWorkspace.shared.frontmostApplication?.localizedName }
-        let q = CGPoint(x: cocoa.x, y: primary.frame.maxY - cocoa.y)
-        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            return NSWorkspace.shared.frontmostApplication?.localizedName
-        }
-        for w in info {
-            let layer = w[kCGWindowLayer as String] as? Int ?? 0
-            if layer != 0 { continue }
-            let owner = w[kCGWindowOwnerName as String] as? String ?? ""
-            if owner.isEmpty || owner == "RoboYard" { continue }
-            guard let b = w[kCGWindowBounds as String] as? [String: Any],
-                  let x = (b["X"] as? NSNumber)?.doubleValue,
-                  let y = (b["Y"] as? NSNumber)?.doubleValue,
-                  let width = (b["Width"] as? NSNumber)?.doubleValue,
-                  let height = (b["Height"] as? NSNumber)?.doubleValue else { continue }
-            let rect = CGRect(x: x, y: y, width: width, height: height)
-            if rect.contains(q) { return owner }
-        }
-        return NSWorkspace.shared.frontmostApplication?.localizedName
+    private func spawnSwarm() {
+        bootColony()
+        ensureOverlays()
+        if crawlOn { fillYard() }
+        RobotMemoryStore.shared.save()
     }
 
-    private func spawnSwarm() {
-        let screens = NSScreen.screens
-        guard !screens.isEmpty else { return }
-        let want = count
-        for i in 0..<want {
-            let si = i % screens.count
-            let screen = screens[si]
-            let box = screen.visibleFrame
-            let memory = RobotMemoryStore.shared.profile(id: i + 1)
-            bots.append(Bot(id: i + 1, mbti: memory.mbti, home: box, screenIndex: si,
-                            memory: memory))
+    private func bootColony() {
+        guard colonists.isEmpty else { return }
+        let saved = ChargeStore.load()
+        colonists = (1...ChargeLaw.roster).map { id in
+            let memory = RobotMemoryStore.shared.profile(id: id)
+            return Colonist(id: id, memory: memory, charge: saved[id] ?? ChargeStore.seed(id: id))
         }
-        for (si, screen) in screens.enumerated() {
+    }
+
+    private func ensureOverlays() {
+        guard swarms.isEmpty, !NSScreen.screens.isEmpty else { return }
+        for (si, screen) in NSScreen.screens.enumerated() {
             let box = screen.visibleFrame
             let canvas = SwarmCanvas(frame: NSRect(origin: .zero, size: box.size))
             canvas.clipsToBounds = false
-            canvas.bots = bots.filter { $0.screenIndex == si }
+            canvas.index = si
             let panel = makeOverlay(size: box.size, level: .floating)
             canvas.autoresizingMask = [.width, .height]
             panel.contentView = canvas
             panel.setFrame(box, display: true)
             panel.orderFrontRegardless()
-            let real = panel.frame
-            for bot in canvas.bots {
-                bot.home = real
-                bot.clampHome()
-            }
-            swarms.append(SwarmLayer(panel: panel, canvas: canvas, home: real))
+            swarms.append(SwarmLayer(panel: panel, canvas: canvas, home: panel.frame, index: si))
         }
-        RobotMemoryStore.shared.save()
+    }
+
+    private func fillYard() {
+        var room = count - colonists.filter { $0.post == .yard || $0.post == .emerging || $0.post == .homing }.count
+        let ranked = colonists.filter { $0.post == .warehouse }.sorted { $0.charge > $1.charge }
+        for colonist in ranked where room > 0 && colonist.charge >= ChargeLaw.talkBelow {
+            appear(colonist, post: .emerging, fromNest: true)
+            room -= 1
+        }
+    }
+
+    private func trimYardToCap() {
+        let extra = colonists.filter { $0.post == .yard || $0.post == .emerging }
+            .sorted { $0.charge < $1.charge }
+        let overflow = max(0, extra.count - count)
+        for colonist in extra.prefix(overflow) { sendHome(colonist) }
+    }
+
+    private func recallAll() {
+        for colonist in colonists where colonist.post.onDesk { sendHome(colonist, hurry: true) }
+    }
+
+    private func sendHome(_ colonist: Colonist, hurry: Bool = false) {
+        colonist.post = .homing
+        if colonist.bot == nil { appear(colonist, post: .homing, fromNest: false) }
+        colonist.bot?.aim = nest(for: colonist.bot)
+        if hurry { colonist.bot?.targetSpeed = 70 }
+    }
+
+    private func release(_ colonist: Colonist) {
+        guard crawlOn else { return }
+        guard colonist.charge >= ChargeLaw.talkBelow else { return }
+        let occupying = colonists.filter { $0.post == .yard || $0.post == .emerging || $0.post == .homing }.count
+        if occupying >= count {
+            guard let tired = ChargeLaw.pickSwap(onYard: colonists.filter { $0.post == .yard }.map { ($0.id, $0.charge) }),
+                  let other = colonists.first(where: { $0.id == tired }), other.id != colonist.id
+            else { return }
+            sendHome(other)
+        }
+        if colonist.bot == nil { appear(colonist, post: .emerging, fromNest: true) }
+        colonist.post = .emerging
+        colonist.bot?.aim = emergeTarget(for: colonist.bot)
+    }
+
+    private func appear(_ colonist: Colonist, post: ChargeLaw.Post, fromNest: Bool) {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return }
+        let si = nestScreenIndex()
+        let box = swarms.first { $0.index == si }?.panel.frame ?? screens[min(si, screens.count - 1)].visibleFrame
+        let bot = Bot(id: colonist.id, mbti: colonist.mbti, home: box, screenIndex: si, memory: colonist.memory)
+        if fromNest {
+            let nest = nestPoint(in: box)
+            bot.x = nest.x + CGFloat((colonist.id % 5) - 2) * 16
+            bot.y = nest.y
+            bot.aim = emergeTarget(for: bot)
+        }
+        bot.energy = colonist.charge
+        colonist.bot = bot
+        colonist.post = post
+    }
+
+    private func despawn(_ colonist: Colonist) {
+        colonist.bot = nil
+        colonist.post = .warehouse
+    }
+
+    private func tickCharge(now: CFTimeInterval, dt: Double) {
+        for colonist in colonists {
+            switch colonist.post {
+            case .warehouse:
+                colonist.charge = ChargeLaw.fill(colonist.charge, dt: dt)
+            case .yard, .homing, .emerging:
+                let bot = colonist.bot
+                colonist.charge = ChargeLaw.drain(colonist.charge, dt: dt,
+                                                  speed: Double(bot?.speed ?? 0),
+                                                  fleeing: bot?.act == .flee,
+                                                  sitting: bot?.act == .sit || bot?.act == .chat || bot?.act == .stand,
+                                                  refused: colonist.memory.refused)
+            }
+            colonist.bot?.energy = colonist.charge
+            colonist.bot?.limp = colonist.post == .homing ? ChargeLaw.limp(for: colonist.charge) : 1
+        }
+    }
+
+    private func rotatePosts(now: CFTimeInterval) {
+        for colonist in colonists {
+            if ChargeLaw.shouldGoHome(colonist.charge, post: colonist.post) {
+                sendHome(colonist)
+            }
+        }
+        swallowHomers()
+        finishEmerging()
+        if crawlOn {
+            var released = 0
+            while released < ChargeLaw.roster {
+                let warehouse = colonists.filter { $0.post == .warehouse }.map { ($0.id, $0.charge) }
+                let onYard = colonists.filter { $0.post == .yard || $0.post == .emerging || $0.post == .homing }.count
+                guard let id = ChargeLaw.pickRelease(from: warehouse, cap: count, onYard: onYard),
+                      let colonist = colonists.first(where: { $0.id == id && $0.post == .warehouse })
+                else { break }
+                let before = colonist.post
+                release(colonist)
+                guard colonist.post != before else { break }
+                released += 1
+            }
+        }
+        _ = now
+    }
+
+    private func swallowHomers() {
+        let nest = nestPoint(in: homeForNest())
+        for colonist in colonists where colonist.post == .homing {
+            guard let bot = colonist.bot else {
+                despawn(colonist)
+                continue
+            }
+            bot.aim = nest
+            if hypot(bot.x - nest.x, bot.y - nest.y) < 26 {
+                despawn(colonist)
+            }
+        }
+    }
+
+    private func finishEmerging() {
+        for colonist in colonists where colonist.post == .emerging {
+            guard let bot = colonist.bot else {
+                colonist.post = .yard
+                continue
+            }
+            if bot.aim == nil { bot.aim = emergeTarget(for: bot) }
+            if let aim = bot.aim, hypot(bot.x - aim.x, bot.y - aim.y) < 36 {
+                colonist.post = .yard
+                bot.aim = nil
+            }
+        }
+    }
+
+    private func shareCharge(dt: Double) {
+        let yard = colonists.filter { $0.post == .yard && $0.bot != nil }
+        for i in 0..<yard.count {
+            for j in (i + 1)..<yard.count {
+                let a = yard[i]
+                let b = yard[j]
+                guard let pa = a.bot, let pb = b.bot, pa.screenIndex == pb.screenIndex else { continue }
+                guard hypot(pa.x - pb.x, pa.y - pb.y) < ChargeLaw.shareRadius else { continue }
+                if a.charge >= b.charge {
+                    let next = ChargeLaw.share(rich: a.charge, poor: b.charge, dt: dt)
+                    a.charge = next.0; b.charge = next.1
+                } else {
+                    let next = ChargeLaw.share(rich: b.charge, poor: a.charge, dt: dt)
+                    b.charge = next.0; a.charge = next.1
+                }
+            }
+        }
+    }
+
+    private func owner(_ bot: Bot) -> Colonist? { colonists.first { $0.bot === bot } }
+
+    private func yardBots() -> [Bot] {
+        colonists.filter { $0.post == .yard }.compactMap(\.bot)
+    }
+
+    private func nestScreenIndex() -> Int {
+        guard nestAnchor != .zero else { return 0 }
+        return NSScreen.screens.firstIndex { $0.frame.contains(nestAnchor) } ?? 0
+    }
+
+    private func homeForNest() -> NSRect {
+        let screens = NSScreen.screens
+        let si = nestScreenIndex()
+        if let swarm = swarms.first(where: { $0.index == si }) { return swarm.panel.frame }
+        guard !screens.isEmpty else { return NSRect(x: 0, y: 0, width: 800, height: 600) }
+        return screens[min(si, screens.count - 1)].visibleFrame
+    }
+
+    private func nestPoint(in box: NSRect) -> CGPoint {
+        let x = nestAnchor == .zero ? box.midX : min(max(nestAnchor.x, box.minX + 40), box.maxX - 40)
+        return CGPoint(x: x, y: box.maxY - 30)
+    }
+
+    private func nest(for bot: Bot?) -> CGPoint {
+        nestPoint(in: bot?.home ?? homeForNest())
+    }
+
+    private func emergeTarget(for bot: Bot?) -> CGPoint {
+        let box = bot?.home ?? homeForNest()
+        let nest = nestPoint(in: box)
+        return CGPoint(x: nest.x + CGFloat.random(in: -80...80), y: box.midY + CGFloat.random(in: -40...80))
     }
 
     private func resetCrawlers() {
+        ChargeStore.save(colonists)
         RobotMemoryStore.shared.save()
         clearBubbles()
-        clearCrawlers()
-        if crawlOn { spawnSwarm() }
+        for swarm in swarms { swarm.panel.orderOut(nil) }
+        swarms = []
+        for colonist in colonists { colonist.bot = nil }
+        if crawlOn {
+            ensureOverlays()
+            for colonist in colonists where colonist.post.onDesk && colonist.post != .warehouse {
+                appear(colonist, post: colonist.post, fromNest: colonist.post != .yard)
+            }
+        }
     }
 
     private func clearCrawlers() {
         for swarm in swarms { swarm.panel.orderOut(nil) }
         swarms = []
-        bots = []
+        for colonist in colonists { colonist.bot = nil }
     }
 
     private func clearBubbles() {
@@ -361,10 +636,12 @@ private final class SwarmLayer {
     let panel: NSPanel
     let canvas: SwarmCanvas
     let home: NSRect
-    init(panel: NSPanel, canvas: SwarmCanvas, home: NSRect) {
+    let index: Int
+    init(panel: NSPanel, canvas: SwarmCanvas, home: NSRect, index: Int) {
         self.panel = panel
         self.canvas = canvas
         self.home = home
+        self.index = index
     }
 }
 
@@ -372,6 +649,8 @@ private final class SwarmLayer {
 final class SwarmCanvas: NSView {
     var bots: [Bot] = []
     var lid: CGFloat = 0
+    var index = 0
+    var highlights: Set<Int> = []
 
     override var isOpaque: Bool { false }
     override var wantsDefaultClipping: Bool { false }
@@ -387,7 +666,8 @@ final class SwarmCanvas: NSView {
             ctx.translateBy(x: local.x, y: local.y)
             ctx.rotate(by: bot.angle)
             ctx.translateBy(x: -local.x, y: -local.y)
-            RobotMark.drawBot(in: g, lid: lid, gait: bot.gait, speed: bot.speed, sit: bot.sit)
+            RobotMark.drawBot(in: g, lid: lid, gait: bot.gait, speed: bot.speed, sit: bot.sit,
+                              tired: 1 - bot.limp, glow: highlights.contains(bot.id))
             ctx.restoreGState()
         }
     }
@@ -422,6 +702,10 @@ final class Bot {
     weak var pal: Bot?
     var traveled: CGFloat = 0
     var sit: CGFloat = 0
+    var lastSpoken: String?
+    var aim: CGPoint?
+    var energy: Double = 1
+    var limp: Double = 1
     private var sepX: CGFloat = 0
     private var sepY: CGFloat = 0
     private let wander: CGFloat
@@ -431,6 +715,7 @@ final class Bot {
 
     var vx: CGFloat { cos(heading) * speed }
     var vy: CGFloat { sin(heading) * speed }
+    var planted: Bool { act == .sit || act == .stand || act == .chat }
     var point: CGPoint { CGPoint(x: x, y: y) }
     var gait: CGFloat { traveled * gaitScale }
     var label: String { String(format: "%02d %@", id, mbti.code) }
@@ -456,7 +741,7 @@ final class Bot {
     }
 
     func canSocial(now: CFTimeInterval) -> Bool {
-        now > panicUntil && now > chatUntil && now > chatCool && act != .flee
+        now > panicUntil && now > chatUntil && now > chatCool && act != .flee && aim == nil
     }
 
     static func pairTalk(_ a: Bot, _ b: Bot, now: CFTimeInterval, secs: ClosedRange<CGFloat> = 3.4...5.6) {
@@ -497,6 +782,7 @@ final class Bot {
         }
         pal = nil
         chatUntil = 0
+        aim = nil
         act = .flee
         let dx = x - mouse.x
         let dy = y - mouse.y
@@ -514,14 +800,14 @@ final class Bot {
     func separate(from others: [Bot]) {
         sepX = 0
         sepY = 0
-        guard act != .chat else { return }
+        guard act != .chat, act != .sit, act != .stand, aim == nil else { return }
         var n: CGFloat = 0
         for o in others {
             if o === self || o.screenIndex != screenIndex { continue }
             let dx = x - o.x
             let dy = y - o.y
             let d = hypot(dx, dy)
-            let personalSpace = collisionRadius + o.collisionRadius + 10
+            let personalSpace = collisionRadius + o.collisionRadius + spacing(to: o)
             if d < 0.01 || d > personalSpace { continue }
             let w = (personalSpace - d) / personalSpace
             sepX += dx / d * w
@@ -534,6 +820,8 @@ final class Bot {
         }
     }
 
+    private func spacing(to other: Bot) -> CGFloat { 10 }
+
     func step(now: CFTimeInterval, dt: CGFloat) {
         if now < panicUntil {
             act = .flee
@@ -544,12 +832,27 @@ final class Bot {
             act = .chat
             speed = 0
             targetSpeed = 0
+        } else if let aim {
+            let dx = aim.x - x
+            let dy = aim.y - y
+            let d = hypot(dx, dy)
+            if d < 8 {
+                speed = 0
+                targetSpeed = 0
+                act = .sit
+            } else {
+                act = .walk
+                targetHeading = atan2(dy, dx)
+                heading = lerpAngle(heading, targetHeading, 1 - exp(-dt * 4.2))
+                targetSpeed = 38 * limp
+                speed += (targetSpeed - speed) * (1 - exp(-dt * 3))
+            }
         } else {
             if now > actUntil { pickAct(now: now) }
             switch act {
             case .sit, .stand, .chat:
                 targetSpeed = 0
-                speed += (0 - speed) * (1 - exp(-dt * 6))
+                speed = 0
             case .edge:
                 crawlEdge()
             case .walk, .flee:
@@ -563,17 +866,21 @@ final class Bot {
                 speed += (targetSpeed - speed) * (1 - exp(-dt * 2.4))
             }
         }
-        if act == .chat {
+        if planted {
             speed = 0
+            targetSpeed = 0
             sepX = 0
             sepY = 0
         } else {
-            x += (cos(heading) * speed + sepX * 55) * dt
-            y += (sin(heading) * speed + sepY * 55) * dt
+            if hypot(sepX, sepY) > 0.08 {
+                targetHeading = lerpAngle(targetHeading, atan2(sepY, sepX), 0.22)
+            }
+            x += cos(heading) * speed * dt
+            y += sin(heading) * speed * dt
             if speed > 8 { traveled += speed * dt }
-            bounce()
+            if aim == nil { bounce() }
         }
-        clampHome()
+        if aim == nil { clampHome() }
         let wantSit: CGFloat = (act == .sit || act == .chat) ? 1 : 0
         sit += (wantSit - sit) * (1 - exp(-dt * 8))
         if act != .chat {
@@ -588,7 +895,7 @@ final class Bot {
     }
 
     func deflect(away normal: CGPoint, now: Double) {
-        guard act != .chat, speed > 0 else { return }
+        guard act != .chat, !planted, speed > 8, aim == nil else { return }
         let inward = vx * normal.x + vy * normal.y
         guard inward < 0 else { return }
         var slide = CGPoint(x: vx - normal.x * inward, y: vy - normal.y * inward)

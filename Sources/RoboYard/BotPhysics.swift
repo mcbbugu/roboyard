@@ -35,6 +35,11 @@ enum BotPhysics {
                     let a = bots[i]
                     let b = bots[j]
                     guard a.screenIndex == b.screenIndex else { continue }
+                    if a.planted && b.planted {
+                        let distance = hypot(b.x - a.x, b.y - a.y)
+                        let required = a.collisionRadius + b.collisionRadius
+                        guard distance < required * 0.55 else { continue }
+                    }
                     let dx = b.x - a.x
                     let dy = b.y - a.y
                     let distance = hypot(dx, dy)

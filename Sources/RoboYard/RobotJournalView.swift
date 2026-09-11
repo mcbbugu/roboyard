@@ -4,7 +4,9 @@ import SwiftUI
 struct RobotJournalView: View {
     private let store: RobotMemoryStore
 
-    init(store: RobotMemoryStore = .shared) { self.store = store }
+    init(store: RobotMemoryStore = .shared) {
+        self.store = store
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { _ in
@@ -35,6 +37,16 @@ struct RobotJournalView: View {
                                     Text("\(profile.mbti.code) · \(profile.textCount.formatted()) 字 · \(profile.experienceCount.formatted()) 段经历")
                                         .font(.callout)
                                         .foregroundStyle(.secondary)
+                                    if let colonist = Critters.shared.colonists.first(where: { $0.id == profile.id }) {
+                                        HStack(spacing: 8) {
+                                            ProgressView(value: colonist.charge)
+                                                .progressViewStyle(.linear)
+                                                .frame(width: 88)
+                                            Text("电量 \(Int(colonist.charge * 100))% · \(colonist.post.title)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
                                 Spacer()
                             }
@@ -71,27 +83,5 @@ struct RobotJournalView: View {
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(minWidth: 520, minHeight: 400)
-    }
-}
-
-private struct RobotPortrait: NSViewRepresentable {
-    let size: CGFloat
-
-    func makeNSView(context: Context) -> PortraitView { PortraitView() }
-
-    func updateNSView(_ view: PortraitView, context: Context) {
-        view.bodySize = size
-        view.needsDisplay = true
-    }
-
-    final class PortraitView: NSView {
-        var bodySize: CGFloat = 16
-
-        override func draw(_ dirtyRect: NSRect) {
-            let box = CGRect(x: (bounds.width - bodySize) / 2,
-                             y: (bounds.height - bodySize) / 2,
-                             width: bodySize, height: bodySize)
-            RobotMark.drawBot(in: box, lid: 0, gait: 0, speed: 0)
-        }
     }
 }

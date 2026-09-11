@@ -12,7 +12,7 @@ scripts/bundle.sh
 open dist/RoboYard.app
 ```
 
-Before opening a pull request, run `swift test` and `scripts/bundle.sh`. Describe the visible behavior your change creates, and include a short clip for movement or drawing changes.
+Before opening a pull request, run `swift test` and `scripts/bundle.sh`. Use the pull request template. Describe the visible behavior your change creates, and include a short clip for movement or drawing changes.
 
 ## Design principles
 
@@ -34,6 +34,7 @@ Never commit personal transcripts, memory archives, API keys, or screenshots con
 | `BotPhysics.swift` | Contact resolution and movement substeps |
 | `RobotMemory.swift` | Character counts, growth, retrieval, and local persistence |
 | `CritterTalk.swift` | Optional Ollama dialogue |
+| `WindowOwner.swift` | Which app a robot is standing on |
 | `RobotMark.swift` | Native vector rendering |
 | `RobotJournalView.swift` | Growth journal |
 

@@ -35,13 +35,15 @@ enum RobotMark {
         eyes(in: g, lid: lid)
     }
 
-    static func drawBot(in g: CGRect, lid: CGFloat, gait: CGFloat, speed: CGFloat = 40, sit: CGFloat = 0) {
+    static func drawBot(in g: CGRect, lid: CGFloat, gait: CGFloat, speed: CGFloat = 40, sit: CGFloat = 0,
+                        tired: CGFloat = 0, glow: Bool = false) {
         let drop = sit * g.height * 0.16
         let box = g.offsetBy(dx: 0, dy: -drop)
-        let bob = speed > 12 ? sin(gait * .pi * 2) * g.height * 0.04 : 0
+        let bob = speed > 12 ? sin(gait * .pi * 2) * g.height * 0.04 * (1 - tired) : 0
         let body = box.offsetBy(dx: 0, dy: bob)
-        draw(in: body, lid: lid, ink: .white, halo: .black)
-        legs(in: body, gait: gait, speed: speed, sit: sit)
+        let ink: NSColor = tired > 0.45 ? NSColor.white.withAlphaComponent(0.72) : .white
+        draw(in: body, lid: lid, ink: ink, halo: glow ? NSColor.systemYellow.withAlphaComponent(0.9) : .black)
+        legs(in: body, gait: gait, speed: speed * (1 - tired * 0.5), sit: sit)
     }
 
     private static func legs(in g: CGRect, gait: CGFloat, speed: CGFloat, sit: CGFloat) {
