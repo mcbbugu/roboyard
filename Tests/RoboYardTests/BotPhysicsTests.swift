@@ -7,16 +7,18 @@ struct BotPhysicsTests {
     private let home = NSRect(x: 0, y: 0, width: 1000, height: 800)
 
     @Test
-    func collisionVolumeWorksWhileTalkingAndDuringCooldown() {
+    func talkingBotsDoNotSlideDuringCooldown() {
         let a = makeBot(id: 1, x: 400)
         let b = makeBot(id: 2, x: 400)
         a.act = .chat
         b.act = .chat
         a.chatCool = 1000
         b.chatCool = 1000
-        let contacts = BotPhysics.resolve([a, b], now: 1)
-        #expect(contacts.count == 1)
-        #expect(hypot(a.x - b.x, a.y - b.y) >= a.collisionRadius + b.collisionRadius - 0.002)
+        let beforeA = a.point
+        let beforeB = b.point
+        _ = BotPhysics.resolve([a, b], now: 1)
+        #expect(a.point == beforeA)
+        #expect(b.point == beforeB)
     }
 
     @Test
@@ -96,16 +98,53 @@ struct BotPhysicsTests {
     }
 
     @Test
-    func overlappingSittersUnstickOnceThenStay() {
+    func walkerBounceDoesNotSlideASitter() {
+        let sitter = makeBot(id: 1, x: 400)
+        let walker = makeBot(id: 2, x: 408)
+        sitter.act = .sit
+        sitter.actUntil = 1000
+        walker.act = .walk
+        walker.heading = .pi
+        walker.speed = 80
+        walker.targetSpeed = 80
+        walker.actUntil = 1000
+        let parked = sitter.point
+        for i in 0..<40 {
+            _ = BotPhysics.advance([sitter, walker], now: 1 + Double(i) / 60, dt: 1.0 / 60)
+            sitter.act = .sit
+            sitter.actUntil = 1000
+        }
+        #expect(hypot(sitter.x - parked.x, sitter.y - parked.y) < 0.05)
+        #expect(sitter.act == .sit)
+        #expect(hypot(walker.x - sitter.x, walker.y - sitter.y)
+                >= sitter.collisionRadius + walker.collisionRadius - 0.002)
+    }
+
+    @Test
+    func walkerDoesNotPushAHomeboundBotOffCourse() {
+        let homebound = makeBot(id: 1, x: 400)
+        let walker = makeBot(id: 2, x: 408)
+        homebound.headHome(to: CGPoint(x: 700, y: 500))
+        let before = homebound.point
+
+        _ = BotPhysics.resolve([homebound, walker], now: 1)
+
+        #expect(homebound.point == before)
+        #expect(hypot(walker.x - homebound.x, walker.y - homebound.y)
+                >= homebound.collisionRadius + walker.collisionRadius - 0.002)
+    }
+
+    @Test
+    func overlappingSittersStayPlanted() {
         let a = makeBot(id: 1, x: 400)
         let b = makeBot(id: 2, x: 408)
         a.act = .sit
         b.act = .sit
         a.actUntil = 1000
         b.actUntil = 1000
-        _ = BotPhysics.resolve([a, b], now: 1)
         let stayA = a.point
         let stayB = b.point
+        _ = BotPhysics.resolve([a, b], now: 1)
         for i in 0..<45 {
             _ = BotPhysics.advance([a, b], now: 2 + Double(i) / 60, dt: 1.0 / 60)
         }

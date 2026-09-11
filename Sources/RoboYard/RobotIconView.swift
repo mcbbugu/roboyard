@@ -53,7 +53,7 @@ final class RobotIconView: NSView {
         charging = Critters.shared.chargingCount > 0
         parked = Critters.shared.chargingCount
         if let window {
-            let frame = window.convertToScreen(bounds)
+            let frame = window.convertToScreen(convert(bounds, to: nil))
             Critters.shared.nestAnchor = CGPoint(x: frame.midX, y: frame.minY)
         }
         let next = RobotMark.lid()

@@ -14,21 +14,21 @@
   <a href="https://github.com/mcbbugu/roboyard/releases">Download</a> · <a href="#quick-start">Quick start</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-Keep a little robot crew on your Mac. Watch them roam across the screen, bump into each other, stop for a chat, and scatter when your pointer gets too close. Open the warehouse to rotate who is on the desk; open their journal to see what they remember.
+Keep 32 little robots on your Mac desktop. They roam, rest, collide, flee from your pointer, and stop to answer each other. Every robot has its own personality, battery, relationships, and memories.
 
 <p align="center"><img src="docs/assets/world.gif" alt="RoboYard robots walking, bumping into each other and chatting" width="960" /></p>
 
 *Close-up demonstration using the app’s real renderer and collision engine, with staged dialogue and sample growth levels. [Reproduce it](scripts/render-preview.sh).*
 
-## Your desktop is the playground
+## A tiny world that runs itself
 
-- **Let a crew loose.** 32 robots live in the warehouse. Choose how many (4–16) may roam the desk at once.
-- **Get in their way.** Move your pointer close and watch them flee. They roam, rest, and crawl along screen edges.
-- **Watch them meet.** Robots stop to talk. Friends keep going for more turns, and each line has to answer the last.
-- **Send them home.** Low battery walks to the menu bar icon and disappears into the warehouse to charge, then crawls back out.
-- **Get to know them.** Each robot keeps its own personality, encounters, conversations, and relationships across restarts.
-- **Watch them grow.** Recorded experiences make their bodies larger. The journal shows each robot’s progress and recent memories.
-- **Run their dialogue locally—or in the cloud.** Ollama by default, or paste a DeepSeek API key. Without a model, robots stay silent.
+- **A persistent crew of 32.** Keep 4, 8, 12, or 16 on the desk while the rest charge in the warehouse.
+- **Behavior lives on your desktop.** They roam, rest, crawl along screen edges, and flee when your pointer gets close.
+- **Conversations have continuity.** Robots take turns; each line must answer the last. Familiar pairs talk longer.
+- **Battery shapes their routine.** A full charge lasts about 30 minutes. Low-battery robots reserve enough power to walk home.
+- **Each robot remembers its own life.** Personality, relationships, and memories survive restarts; more experience means a larger body.
+- **Local or cloud dialogue.** Use Ollama by default or opt into DeepSeek. No working model means quiet robots.
+- **Switch languages anytime.** The interface and newly generated dialogue support Chinese and English.
 
 Native Swift + AppKit. Lives in your menu bar. Local voice needs no cloud account.
 
@@ -36,10 +36,12 @@ Native Swift + AppKit. Lives in your menu bar. Local voice needs no cloud accoun
 
 <p align="center">
   <img src="docs/assets/warehouse.png" alt="Warehouse window: 32 robots, battery bars, send out or call back" width="720" />
+  <br /><sub>Warehouse: choose who is on the desk, check battery levels, and call robots home.</sub>
 </p>
 
 <p align="center">
   <img src="docs/assets/journal.png" alt="Growth journal: memories, charge, and who is on the desk" width="720" />
+  <br /><sub>Journal: accumulated text, growth stage, and recent experiences for every robot.</sub>
 </p>
 
 [![RoboYard running on a clean desktop backdrop](docs/assets/desktop.gif)](https://github.com/mcbbugu/roboyard/releases/download/v0.1.0/RoboYard-demo.mp4)
@@ -75,11 +77,11 @@ ollama pull qwen3.5:2b
 
 RoboYard talks to `http://127.0.0.1:11434` by default. From the menu bar you can keep using Ollama, or switch to cloud DeepSeek by pasting an API key (model defaults to `deepseek-chat`). If you use the Ollama CLI without its desktop app, start the server with `ollama serve`. The menu shows when the endpoint is reachable; if it isn’t, robots stay silent.
 
-Dialogue and the journal are currently in Chinese. “Voice” here means their written speech bubbles; the app does not use a microphone or play synthesized speech.
+Switch between Chinese and English from the menu bar. “Voice” means written speech bubbles; the app does not use a microphone or play synthesized speech. Changing language does not rewrite saved memories.
 
 ## How they grow
 
-Use the menu bar icon to show or hide them, choose a population of 4–32, or open **成长记录…** (Growth Journal). The journal shows each robot’s character count, stage, recent experiences, and thoughts. Move your pointer close to a robot to see it react.
+Use the menu bar icon to show or hide robots, set a desk cap from 4–16, or open the Warehouse and Journal. The journal shows each robot’s character count, stage, recent experiences, and thoughts.
 
 Growth is driven by recorded characters, including punctuation—not model tokens, elapsed time, or the number of inference requests. Repeated contact frames are debounced. Bodies grow smoothly from 16 to 32 points; character counts keep increasing after the visual size cap.
 
@@ -99,7 +101,6 @@ The app reads pointer position, screen/window geometry, and application names. A
 
 The current release is an early experiment. Good next contributions include:
 
-- English and multilingual dialogue/UI.
 - Richer relationships and more selective long-term recollection.
 - Quieter, more efficient rendering for all-day companionship.
 - New experiments for robots that begin questioning the boundary.

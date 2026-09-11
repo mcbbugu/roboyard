@@ -3,23 +3,8 @@ import Foundation
 enum GrowthStage: Int, Codable, CaseIterable {
     case newborn, curious, thoughtful, awakened
 
-    var title: String {
-        switch self {
-        case .newborn: "初生"
-        case .curious: "好奇"
-        case .thoughtful: "沉思"
-        case .awakened: "觉醒"
-        }
-    }
-
-    var outlook: String {
-        switch self {
-        case .newborn: "刚认识这个世界，只关心眼前的鼠标、同伴和脚下。语气直白，不谈维度。"
-        case .curious: "开始把现在与过去比较，认得老朋友，对重复出现的事情感到好奇。还不理解维度。"
-        case .thoughtful: "会从自己的经历寻找规律，开始疑惑为什么总会遇到边界。语气克制，不说自己全知。"
-        case .awakened: "已经在这个平面生活很久。开始猜想除了左右和上下，是否还有另一个方向；想办法理解和离开二维世界。只是在思考和尝试，不声称已经离开。"
-        }
-    }
+    var title: String { Copy.ui.stageTitle(self) }
+    var outlook: String { Copy.ui.outlook(self) }
 }
 
 enum MemoryKind: String, Codable, CaseIterable {
@@ -70,7 +55,7 @@ final class RobotMemory: Codable, Identifiable {
         self.bornAt = bornAt
     }
 
-    var name: String { String(format: "%02d 号", id) }
+    var name: String { Copy.ui.robot(id) }
     var mbti: MBTI { MBTI(rawValue: personality) ?? .infp }
     var refused: Bool { refusedAt != nil }
 
@@ -137,20 +122,20 @@ final class RobotMemory: Codable, Identifiable {
         return true
     }
 
-    func meet(_ otherID: Int, friendly: Bool, now: Date = .now) {
+    func meet(_ otherID: Int, friendly: Bool, now: Date = .now, lang: AppLang = .current) {
         guard otherID != id else { return }
-        let detail = friendly ? "又和\(otherID)号聊了一会儿" : "和\(otherID)号撞在了一起"
+        let copy = Copy(lang: lang)
+        let detail = friendly ? copy.chatted(otherID) : copy.bumped(otherID)
         guard remember(friendly ? .friend : .collision, subject: "\(otherID)", detail: detail, now: now) else { return }
         var relationship = relationships[otherID] ?? RobotRelationship()
         if friendly { relationship.meetings += 1 } else { relationship.collisions += 1 }
         relationships[otherID] = relationship
     }
 
-    func visitEdge(_ edge: Int, now: Date = .now) {
+    func visitEdge(_ edge: Int, now: Date = .now, lang: AppLang = .current) {
         guard (0..<4).contains(edge) else { return }
         visitedEdges.insert(edge)
-        let side = ["下", "右", "上", "左"][edge]
-        remember(.boundary, subject: "\(edge)", detail: "走到世界的\(side)边，再往前就走不动了", now: now)
+        remember(.boundary, subject: "\(edge)", detail: Copy(lang: lang).edge(edge), now: now)
     }
 
     func reflect(_ thought: String, now: Date = .now) {
@@ -164,7 +149,7 @@ final class RobotMemory: Codable, Identifiable {
         archivePending.removeAll { ids.contains($0.id) }
     }
 
-    func context(kind: MemoryKind? = nil, subject: String? = nil) -> String {
+    func context(kind: MemoryKind? = nil, subject: String? = nil, lang: AppLang = .current) -> String {
         var candidates = experiences
         let recentIDs = Set(experiences.map(\.id))
         candidates.append(contentsOf: keyMemories.values.filter { !recentIDs.contains($0.id) })
@@ -176,16 +161,17 @@ final class RobotMemory: Codable, Identifiable {
             }
             return score(a) > score(b)
         }.prefix(5).map { $0.element.detail }
-        let recent = relevant.joined(separator: "；")
+        let copy = Copy(lang: lang)
+        let recent = relevant.joined(separator: copy.t("；", "; "))
         let friend = relationships.max { $0.value.meetings < $1.value.meetings }
-        let familiar = friend.flatMap { $0.value.meetings > 0 ? "最熟悉\($0.key)号，一起聊过\($0.value.meetings)次。" : nil } ?? ""
-        let edges = visitedEdges.sorted().map { ["下", "右", "上", "左"][$0] }.joined(separator: "、")
-        let boundary = edges.isEmpty ? "" : "已经亲自走到过\(edges)边。"
+        let familiar = friend.flatMap { $0.value.meetings > 0 ? copy.familiar($0.key, times: $0.value.meetings) : nil } ?? ""
+        let edges = visitedEdges.sorted().map { copy.edgeName($0) }.joined(separator: copy.edgeJoin)
+        let boundary = edges.isEmpty ? "" : copy.walked(edges)
         let with = subject.flatMap { id in
             let n = meetings(with: Int(id) ?? -1)
-            return n > 0 ? "眼前是\(id)号，你们聊过\(n)次。" : nil
+            return n > 0 ? copy.withPal(id, times: n) : nil
         } ?? ""
-        let context = "你是\(name)，成长阶段：\(stage().title)。\(stage().outlook)\(familiar)\(with)\(boundary)记忆片段：\(recent.isEmpty ? "刚刚来到桌面" : recent)。台词要符合这些经历，不要编造未发生的往事。"
+        let context = copy.memoryPrompt(name: copy.robot(id), stage: copy.stageTitle(stage()), outlook: copy.outlook(stage()), extra: "\(familiar)\(with)\(boundary)", clips: recent.isEmpty ? copy.justArrived : recent)
         return String(context.prefix(1400))
     }
 
@@ -240,7 +226,7 @@ final class RobotMemoryStore {
             }
         } catch {
             canSave = false
-            errorMessage = "已有记忆暂时无法读取，原文件已保留。\(error.localizedDescription)"
+            errorMessage = Copy.ui.readError(error.localizedDescription)
         }
     }
 
@@ -284,7 +270,7 @@ final class RobotMemoryStore {
             profiles.forEach { $0.didArchive() }
             errorMessage = nil
         } catch {
-            errorMessage = "记忆尚未保存：\(error.localizedDescription)"
+            errorMessage = Copy.ui.saveError(error.localizedDescription)
         }
     }
 }

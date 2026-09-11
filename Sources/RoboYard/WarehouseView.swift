@@ -1,36 +1,40 @@
 import SwiftUI
 
 struct WarehouseView: View {
+    @ObservedObject private var voice = Voice.shared
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.4)) { _ in
             let yard = Critters.shared
+            let copy = Copy.ui
             let rows = yard.roster()
             let desk = rows.filter { $0.post != .warehouse }
             let rest = rows.filter { $0.post == .warehouse }.sorted { $0.charge > $1.charge }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    header(yard)
-                    stats(yard)
-                    bay(title: "桌上", caption: "点卡片叫回来。它们会爬向菜单栏，进仓库后消失。", rows: desk, empty: "桌上现在没人。")
-                    bay(title: "仓库", caption: "在里面充电。满了且桌上有空位，会自己爬出来。", rows: rest, empty: "仓库空了。")
+                    header(yard, copy)
+                    stats(yard, copy)
+                    bay(title: copy.deskBay, caption: copy.deskCaption, rows: desk, empty: copy.deskEmpty)
+                    bay(title: copy.nestBay, caption: copy.nestCaption, rows: rest, empty: copy.nestEmpty)
                 }
                 .padding(24)
             }
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(minWidth: 640, minHeight: 520)
+        .id(voice.stamp)
     }
 
-    private func header(_ yard: Critters) -> some View {
+    private func header(_ yard: Critters, _ copy: Copy) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("仓库")
+            Text(copy.warehouseLead)
                 .font(.title2.bold())
-            Text("编制 \(ChargeLaw.roster) 只。桌上最多 \(yard.count) 只，剩下的在这儿充电。")
+            Text(copy.warehouseBlurb(roster: ChargeLaw.roster, cap: yard.count))
                 .foregroundStyle(.secondary)
-            Picker("桌上最多", selection: capBinding) {
+            Picker(copy.deskCapPicker, selection: capBinding) {
                 ForEach(Critters.countChoices, id: \.self) { n in
-                    Text("\(n) 只").tag(n)
+                    Text(copy.countLabel(n)).tag(n)
                 }
             }
             .pickerStyle(.segmented)
@@ -38,12 +42,12 @@ struct WarehouseView: View {
         }
     }
 
-    private func stats(_ yard: Critters) -> some View {
+    private func stats(_ yard: Critters, _ copy: Copy) -> some View {
         HStack(spacing: 8) {
-            chip("桌上 \(yard.yardCount)/\(yard.count)")
-            chip("回家路上 \(yard.homingCount)")
-            chip("仓库充电 \(yard.chargingCount)")
-            chip("仓库 \(yard.warehouseCount)")
+            chip(copy.deskStat(on: yard.yardCount, cap: yard.count))
+            chip(copy.homingStat(yard.homingCount))
+            chip(copy.chargingStat(yard.chargingCount))
+            chip(copy.nestStat(yard.warehouseCount))
             Spacer()
         }
     }

@@ -25,6 +25,20 @@ struct ChargeLawTests {
         #expect(filled >= 0.95)
         let refused = ChargeLaw.drain(1, dt: 10, speed: 50, fleeing: false, sitting: false, refused: true)
         #expect(refused > walked)
+        let reserve = ChargeLaw.drain(ChargeLaw.goHomeBelow, dt: 300, speed: 38,
+                                      fleeing: false, sitting: false, refused: false, post: .homing)
+        #expect(reserve == ChargeLaw.goHomeBelow)
+    }
+
+    @Test
+    func fullChargeWalksForThirtyMinutesBeforeHeadingHome() {
+        let before = ChargeLaw.drain(1, dt: 30 * 60 - 1, speed: 38,
+                                     fleeing: false, sitting: false, refused: false)
+        let due = ChargeLaw.drain(1, dt: 30 * 60, speed: 38,
+                                  fleeing: false, sitting: false, refused: false)
+        #expect(!ChargeLaw.shouldGoHome(before, post: .yard))
+        #expect(abs(due - ChargeLaw.goHomeBelow) < 0.000_001)
+        #expect(ChargeLaw.shouldGoHome(due, post: .yard))
     }
 
     @Test

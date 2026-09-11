@@ -35,11 +35,9 @@ enum BotPhysics {
                     let a = bots[i]
                     let b = bots[j]
                     guard a.screenIndex == b.screenIndex else { continue }
-                    if a.planted && b.planted {
-                        let distance = hypot(b.x - a.x, b.y - a.y)
-                        let required = a.collisionRadius + b.collisionRadius
-                        guard distance < required * 0.55 else { continue }
-                    }
+                    let fixedA = a.planted || a.homebound
+                    let fixedB = b.planted || b.homebound
+                    if fixedA && fixedB { continue }
                     let dx = b.x - a.x
                     let dy = b.y - a.y
                     let distance = hypot(dx, dy)
@@ -54,9 +52,10 @@ enum BotPhysics {
                         normal = CGPoint(x: cos(angle), y: sin(angle))
                     }
                     let depth = required - distance + 0.001
-                    let inverseA = 1 / (a.collisionRadius * a.collisionRadius)
-                    let inverseB = 1 / (b.collisionRadius * b.collisionRadius)
-                    let shareA = inverseA / (inverseA + inverseB)
+                    let inverseA = fixedA ? 0 : 1 / (a.collisionRadius * a.collisionRadius)
+                    let inverseB = fixedB ? 0 : 1 / (b.collisionRadius * b.collisionRadius)
+                    let total = inverseA + inverseB
+                    let shareA = inverseA / total
                     let awayA = CGPoint(x: -normal.x, y: -normal.y)
                     let spaceA = availableDistance(a, direction: awayA)
                     let spaceB = availableDistance(b, direction: normal)

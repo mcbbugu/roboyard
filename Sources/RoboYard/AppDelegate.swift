@@ -29,7 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let visible = Critters.shared.crawlOn
         button.title = ""
         button.image = nil
-        button.toolTip = visible ? Critters.shared.summaryLine : "桌面机器人 · 已隐藏"
+        let copy = Copy.ui
+        button.toolTip = visible ? Critters.shared.summaryLine : copy.hidden
         robotView.isActive = visible
         robotView.frame = button.bounds
         robotView.autoresizingMask = [.width, .height]
@@ -38,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         let menu = NSMenu()
-        let title = NSMenuItem(title: "桌面机器人", action: nil, keyEquivalent: "")
+        let title = NSMenuItem(title: copy.appName, action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
         let summary = NSMenuItem(title: Critters.shared.summaryLine, action: nil, keyEquivalent: "")
@@ -47,26 +48,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(summary)
         menu.addItem(.separator())
 
-        let show = NSMenuItem(title: "显示机器人", action: #selector(toggleCrawl), keyEquivalent: "h")
+        let show = NSMenuItem(title: copy.showRobots, action: #selector(toggleCrawl), keyEquivalent: "h")
         show.target = self
         show.state = visible ? .on : .off
         menu.addItem(show)
         menu.addItem(countMenu())
-        let yard = NSMenuItem(title: "仓库…", action: #selector(openWarehouse), keyEquivalent: "y")
+        let yard = NSMenuItem(title: copy.warehouseMenu, action: #selector(openWarehouse), keyEquivalent: "y")
         yard.target = self
         menu.addItem(yard)
-        let journal = NSMenuItem(title: "成长记录…", action: #selector(openJournal), keyEquivalent: "j")
+        let journal = NSMenuItem(title: copy.journalMenu, action: #selector(openJournal), keyEquivalent: "j")
         journal.target = self
         menu.addItem(journal)
         menu.addItem(.separator())
         addTalkItems(to: menu)
+        menu.addItem(languageMenu())
         menu.addItem(.separator())
 
-        let quit = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: copy.quit, action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         menu.delegate = self
         statusItem.menu = menu
+        journalWindow?.title = copy.journalTitle
+        warehouseWindow?.title = copy.warehouseTitle
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -92,13 +96,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func countMenu() -> NSMenuItem {
-        let item = NSMenuItem(title: "桌上最多：\(Critters.shared.count) 只", action: nil, keyEquivalent: "")
+        let copy = Copy.ui
+        let item = NSMenuItem(title: copy.deskCap(Critters.shared.count), action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for n in Critters.countChoices {
-            let row = NSMenuItem(title: "\(n) 只", action: #selector(pickCount(_:)), keyEquivalent: "")
+            let row = NSMenuItem(title: copy.countLabel(n), action: #selector(pickCount(_:)), keyEquivalent: "")
             row.target = self
             row.tag = n
             row.state = n == Critters.shared.count ? .on : .off
+            sub.addItem(row)
+        }
+        item.submenu = sub
+        return item
+    }
+
+    private func languageMenu() -> NSMenuItem {
+        let copy = Copy.ui
+        let item = NSMenuItem(title: copy.language, action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        for lang in AppLang.allCases {
+            let row = NSMenuItem(title: lang.label, action: #selector(pickLang(_:)), keyEquivalent: "")
+            row.target = self
+            row.representedObject = lang.rawValue
+            row.state = lang == AppLang.current ? .on : .off
             sub.addItem(row)
         }
         item.submenu = sub
@@ -111,17 +131,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         status.isEnabled = false
         status.tag = 99
         menu.addItem(status)
-        let local = NSMenuItem(title: "使用本地 Ollama", action: #selector(pickProvider(_:)), keyEquivalent: "")
+        let copy = Copy.ui
+        let local = NSMenuItem(title: copy.useOllama, action: #selector(pickProvider(_:)), keyEquivalent: "")
         local.target = self
         local.tag = 0
         local.state = talk.provider == .ollama ? .on : .off
         menu.addItem(local)
-        let cloud = NSMenuItem(title: "使用云端 DeepSeek", action: #selector(pickProvider(_:)), keyEquivalent: "")
+        let cloud = NSMenuItem(title: copy.useDeepSeek, action: #selector(pickProvider(_:)), keyEquivalent: "")
         cloud.target = self
         cloud.tag = 1
         cloud.state = talk.provider == .deepseek ? .on : .off
         menu.addItem(cloud)
-        let edit = NSMenuItem(title: "填入 DeepSeek Key…", action: #selector(editTalk), keyEquivalent: "")
+        let edit = NSMenuItem(title: copy.editKey, action: #selector(editTalk), keyEquivalent: "")
         edit.target = self
         menu.addItem(edit)
     }
@@ -139,6 +160,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    @objc private func pickLang(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let lang = AppLang(rawValue: raw) else { return }
+        Voice.shared.set(lang)
+        refresh()
+    }
+
     @objc private func pickCount(_ sender: NSMenuItem) {
         Critters.shared.count = sender.tag
         refresh()
@@ -150,18 +177,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func editTalk() {
+        let copy = Copy.ui
         let talk = CritterTalk.shared
         let alert = NSAlert()
-        alert.messageText = "对话来源"
-        alert.informativeText = "本地走 Ollama。云端填 DeepSeek API Key 即可，默认 deepseek-chat。没连上就沉默。云端会把台词提示发到 DeepSeek。"
+        alert.messageText = copy.talkSource
+        alert.informativeText = copy.talkInfo
         let source = NSPopUpButton(frame: NSRect(x: 0, y: 84, width: 320, height: 24), pullsDown: false)
-        source.addItems(withTitles: ["本地 Ollama", "云端 DeepSeek"])
+        source.addItems(withTitles: [copy.localOllama, copy.cloudDeepSeek])
         source.selectItem(at: talk.provider == .deepseek ? 1 : 0)
         let modelField = NSTextField(string: talk.model)
         modelField.placeholderString = talk.provider == .deepseek ? CritterTalk.defaultCloudModel : CritterTalk.defaultModel
         modelField.frame = NSRect(x: 0, y: 56, width: 320, height: 24)
         let endpointField = NSTextField(string: talk.endpoint)
-        endpointField.placeholderString = "Ollama 地址"
+        endpointField.placeholderString = copy.ollamaAddr
         endpointField.frame = NSRect(x: 0, y: 28, width: 320, height: 24)
         let keyField = NSSecureTextField(string: talk.apiKey)
         keyField.placeholderString = "DeepSeek API Key"
@@ -172,8 +200,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         box.addSubview(modelField)
         box.addSubview(source)
         alert.accessoryView = box
-        alert.addButton(withTitle: "好")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: copy.ok)
+        alert.addButton(withTitle: copy.cancel)
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let selected: CritterTalk.Provider = source.indexOfSelectedItem == 1 ? .deepseek : .ollama
@@ -203,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 680),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                   backing: .buffered, defer: false)
-            window.title = "机器人的成长记录"
+            window.title = Copy.ui.journalTitle
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: RobotJournalView())
             window.center()
@@ -218,7 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 700),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                   backing: .buffered, defer: false)
-            window.title = "仓库"
+            window.title = Copy.ui.warehouseTitle
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: WarehouseView())
             window.center()

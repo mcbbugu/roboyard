@@ -99,20 +99,12 @@ final class CritterTalk {
     }
 
     var statusLine: String {
+        let copy = Copy.ui
         switch provider {
         case .ollama:
-            switch reachability {
-            case .unknown: return "Ollama · 未检测"
-            case .connected: return "Ollama · \(model)"
-            case .unreachable: return "Ollama · 未连接（沉默）"
-            }
+            return copy.ollamaStatus(reachability, model: model)
         case .deepseek:
-            if apiKey.isEmpty { return "DeepSeek · 未填密钥" }
-            switch reachability {
-            case .unknown: return "DeepSeek · 未检测"
-            case .connected: return "DeepSeek · \(model)"
-            case .unreachable: return "DeepSeek · 未连接（沉默）"
-            }
+            return copy.deepseekStatus(reachability, model: model, hasKey: !apiKey.isEmpty)
         }
     }
 
@@ -122,30 +114,31 @@ final class CritterTalk {
         let now = CACurrentMediaTime()
         if !urgent, now - last < gap { return nil }
         last = now
-        let appName = (app?.isEmpty == false) ? app! : "桌面"
-        var user = "\(memory)\n说话风格：\(vibe)。只说那一句台词。"
+        let copy = Copy.ui
+        let appName = (app?.isEmpty == false) ? app! : copy.desktop
+        var user = "\(memory)\n\(copy.speakStyle)：\(vibe)。\(copy.oneLine)"
         switch event {
-        case .flee: user += "鼠标贴过来了，边跑边喊。"
-        case .linger: user += "人盯着\(appName)很久了。"
-        case .idle: user += "停在原地歇着，眼前是\(appName)。"
+        case .flee: user += copy.fleeCue
+        case .linger: user += copy.lingerCue(appName)
+        case .idle: user += copy.idleCue(appName)
         case .chat:
-            if let cue = Self.chatFollowUp(replyTo: replyTo) {
+            if let cue = Self.chatFollowUp(replyTo: replyTo, lang: copy.lang) {
                 user += cue
             } else {
-                user += "你开口跟眼前的同伴说话。对方风格：\(other ?? "同类")。抛一句对方接得上的话。"
+                user += copy.chatOpen(other ?? copy.palFallback)
             }
-        case .scold: user += "被撞了，正追着对方骂。对方风格：\(other ?? "路人")。"
-        case .reflect: user += "安静下来，回想一件亲历的事，说出此刻冒出的一个疑问。让思考符合你的成长阶段。"
+        case .scold: user += copy.scoldCue(other ?? copy.strangerFallback)
+        case .reflect: user += copy.reflectCue
         }
         let line = await ask(user)
         if line != nil { reachability = .connected }
         return line
     }
 
-    nonisolated static func chatFollowUp(replyTo: String?) -> String? {
+    nonisolated static func chatFollowUp(replyTo: String?, lang: AppLang = .current) -> String? {
         let line = replyTo?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard line.count >= 2 else { return nil }
-        return "你在和同伴对话。对方刚说：\(line)。必须接这一句，问答、顺着说或轻轻反驳都行，不要另起一个无关话题。"
+        return Copy(lang: lang).chatFollow(line)
     }
 
     func refreshStatus() async {
@@ -182,7 +175,7 @@ final class CritterTalk {
         URL(string: normalizedEndpoint(endpoint))?.appending(path: "api/tags")
     }
 
-    nonisolated static func cleaned(_ raw: String) -> String? {
+    nonisolated static func cleaned(_ raw: String, lang: AppLang = .current) -> String? {
         var s = raw
         if let r = try? NSRegularExpression(pattern: #"<think>[\s\S]*?</think>"#, options: .caseInsensitive) {
             s = r.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
@@ -194,7 +187,8 @@ final class CritterTalk {
         s = s.trimmingCharacters(in: .whitespacesAndNewlines)
         let banned = ["系统", "指令", "用户", "assistant", "prompt", "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP", "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"]
         if banned.contains(where: { s.localizedCaseInsensitiveContains($0) }) { return nil }
-        if s.count > 18 { s = String(s.prefix(18)) }
+        let cap = Copy(lang: lang).maxLine
+        if s.count > cap { s = String(s.prefix(cap)) }
         if s.count < 2 { return nil }
         return s
     }
@@ -245,7 +239,7 @@ final class CritterTalk {
         let messages: [[String: String]] = [
             [
                 "role": "system",
-                "content": "小四足机器人。只回一句中文口语，最多14字。不要解释，不要引号，不要写出编号或性格类型。",
+                "content": Copy.ui.systemPrompt,
             ],
             ["role": "user", "content": user],
         ]

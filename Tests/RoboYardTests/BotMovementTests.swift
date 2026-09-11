@@ -61,6 +61,27 @@ struct BotMovementTests {
         }
     }
 
+    @Test
+    func headingHomeInterruptsChatAndWalksAtVisibleSpeed() {
+        let bot = makeBot(edge: 0)
+        bot.act = .chat
+        bot.chatUntil = 1000
+        bot.panicUntil = 1000
+        bot.speed = 0
+        bot.targetSpeed = 0
+        let target = CGPoint(x: home.maxX - 40, y: home.maxY - 40)
+        let before = bot.point
+
+        bot.headHome(to: target)
+        bot.step(now: 1, dt: dt)
+
+        #expect(bot.act == .walk)
+        #expect(bot.chatUntil == 0)
+        #expect(bot.panicUntil == 0)
+        #expect(bot.speed > 10)
+        #expect(hypot(bot.x - before.x, bot.y - before.y) > 0)
+    }
+
     private func makeBot(edge: Int) -> Bot {
         let bot = Bot(id: edge, mbti: .intj, home: home, screenIndex: 0)
         bot.x = home.midX

@@ -42,6 +42,7 @@ final class Critters: NSObject {
     private var nextIdle = CACurrentMediaTime() + 50
     private var nextSave = CACurrentMediaTime() + 15
     private var nextPing = CACurrentMediaTime() + 5
+    private var pendingReleaseID: Int?
 
     func start() {
         guard observers.isEmpty else { return }
@@ -94,14 +95,14 @@ final class Critters: NSObject {
     var chargingCount: Int { colonists.filter { $0.post == .warehouse && $0.charge < 1 }.count }
 
     var summaryLine: String {
-        "桌上 \(yardCount)/\(count) · 仓库 \(warehouseCount)"
+        Copy.ui.summary(on: yardCount, cap: count, nest: warehouseCount)
     }
 
     func roster() -> [YardRow] {
         colonists.map {
             YardRow(id: $0.id, name: $0.name, code: $0.mbti.code, stage: $0.memory.stage().title,
                     charge: $0.charge, post: $0.post, refused: $0.memory.refused,
-                    bodySize: $0.memory.bodySize())
+                    bodySize: $0.memory.bodySize(), worldVisible: crawlOn)
         }
     }
 
@@ -120,6 +121,7 @@ final class Critters: NSObject {
             if colonist.charge >= ChargeLaw.talkBelow, deskRoom() > 0 {
                 colonist.post = .yard
                 colonist.bot?.aim = nil
+                colonist.bot?.homebound = false
             }
         case .warehouse:
             release(colonist)
@@ -153,11 +155,11 @@ final class Critters: NSObject {
             bootColony()
             if crawlOn { fillYard() }
         }
-        ensureOverlays()
         tickCharge(now: now, dt: dt)
         rotatePosts(now: now)
         let visible = bots
         guard crawlOn || !visible.isEmpty else { return }
+        ensureOverlays()
         scareFromMouse(now: now)
         meet(now: now)
         maybeLinger(now: now)
@@ -184,7 +186,8 @@ final class Critters: NSObject {
         var nearest: Bot?
         var nearestD: CGFloat = .greatestFiniteMagnitude
         var closeCount = 0
-        for c in bots {
+        let active = yardBots()
+        for c in active {
             let d = hypot(c.x - mouse.x, c.y - mouse.y)
             if d < nearestD {
                 nearestD = d
@@ -201,7 +204,7 @@ final class Critters: NSObject {
         }
         let near = closeCount > 0
         if near, !mouseWasNear {
-            for c in bots {
+            for c in active {
                 let d = hypot(c.x - mouse.x, c.y - mouse.y)
                 if d < 72 { c.flee(from: mouse, now: now, boost: 1) }
             }
@@ -248,7 +251,7 @@ final class Critters: NSObject {
         let urgent = event == .flee || event == .chat || event == .scold
         let app = scene ?? WindowOwner.at(bot.point)
         if event == .linger || event == .idle, let app, !app.isEmpty {
-            bot.memory.remember(.place, subject: app, detail: "陪着人待在\(app)旁边")
+            bot.memory.remember(.place, subject: app, detail: Copy.ui.linger(at: app))
         }
         let memory = bot.memory.context(kind: event.memoryKind, subject: other.map { String($0.id) })
         guard crawlOn, bots.contains(where: { $0 === bot }) else { return nil }
@@ -296,7 +299,9 @@ final class Critters: NSObject {
                 guard a.screenIndex == b.screenIndex else { continue }
                 guard owner(a)?.post == .yard, owner(b)?.post == .yard else { continue }
                 let d = hypot(a.x - b.x, a.y - b.y)
-                guard d < a.collisionRadius + b.collisionRadius + 12, d > 8, a.canSocial(now: now), b.canSocial(now: now) else { continue }
+                let contactDistance = a.collisionRadius + b.collisionRadius
+                guard d >= contactDistance - 0.001, d < contactDistance + 12,
+                      a.canSocial(now: now), b.canSocial(now: now) else { continue }
                 converse(a, b, now: now)
             }
         }
@@ -306,6 +311,7 @@ final class Critters: NSObject {
         for contact in contacts {
             let a = contact.a
             let b = contact.b
+            guard owner(a)?.post == .yard, owner(b)?.post == .yard else { continue }
             a.memory.meet(b.id, friendly: false)
             b.memory.meet(a.id, friendly: false)
             owner(a)?.charge = ChargeLaw.clamp((owner(a)?.charge ?? 0) - ChargeLaw.bumpCost)
@@ -433,14 +439,16 @@ final class Critters: NSObject {
     }
 
     private func recallAll() {
-        for colonist in colonists where colonist.post.onDesk { sendHome(colonist, hurry: true) }
+        pendingReleaseID = nil
+        for colonist in colonists where colonist.post.onDesk { despawn(colonist) }
+        clearCrawlers()
     }
 
-    private func sendHome(_ colonist: Colonist, hurry: Bool = false) {
+    private func sendHome(_ colonist: Colonist) {
         colonist.post = .homing
         if colonist.bot == nil { appear(colonist, post: .homing, fromNest: false) }
-        colonist.bot?.aim = nest(for: colonist.bot)
-        if hurry { colonist.bot?.targetSpeed = 70 }
+        guard let bot = colonist.bot else { return }
+        bot.headHome(to: nest(for: bot))
     }
 
     private func release(_ colonist: Colonist) {
@@ -448,11 +456,14 @@ final class Critters: NSObject {
         guard colonist.charge >= ChargeLaw.talkBelow else { return }
         let occupying = colonists.filter { $0.post == .yard || $0.post == .emerging || $0.post == .homing }.count
         if occupying >= count {
-            guard let tired = ChargeLaw.pickSwap(onYard: colonists.filter { $0.post == .yard }.map { ($0.id, $0.charge) }),
-                  let other = colonists.first(where: { $0.id == tired }), other.id != colonist.id
-            else { return }
-            sendHome(other)
+            pendingReleaseID = colonist.id
+            if let tired = ChargeLaw.pickSwap(onYard: colonists.filter { $0.post == .yard }.map { ($0.id, $0.charge) }),
+               let other = colonists.first(where: { $0.id == tired }), other.id != colonist.id {
+                sendHome(other)
+            }
+            return
         }
+        if pendingReleaseID == colonist.id { pendingReleaseID = nil }
         if colonist.bot == nil { appear(colonist, post: .emerging, fromNest: true) }
         colonist.post = .emerging
         colonist.bot?.aim = emergeTarget(for: colonist.bot)
@@ -491,10 +502,11 @@ final class Critters: NSObject {
                                                   speed: Double(bot?.speed ?? 0),
                                                   fleeing: bot?.act == .flee,
                                                   sitting: bot?.act == .sit || bot?.act == .chat || bot?.act == .stand,
-                                                  refused: colonist.memory.refused)
+                                                  refused: colonist.memory.refused,
+                                                  post: colonist.post)
             }
             colonist.bot?.energy = colonist.charge
-            colonist.bot?.limp = colonist.post == .homing ? ChargeLaw.limp(for: colonist.charge) : 1
+            colonist.bot?.limp = 1
         }
     }
 
@@ -507,6 +519,11 @@ final class Critters: NSObject {
         swallowHomers()
         finishEmerging()
         if crawlOn {
+            if deskRoom() > 0,
+               let id = pendingReleaseID,
+               let pending = colonists.first(where: { $0.id == id && $0.post == .warehouse }) {
+                release(pending)
+            }
             var released = 0
             while released < ChargeLaw.roster {
                 let warehouse = colonists.filter { $0.post == .warehouse }.map { ($0.id, $0.charge) }
@@ -706,6 +723,7 @@ final class Bot {
     var aim: CGPoint?
     var energy: Double = 1
     var limp: Double = 1
+    var homebound = false
     private var sepX: CGFloat = 0
     private var sepY: CGFloat = 0
     private let wander: CGFloat
@@ -778,7 +796,7 @@ final class Bot {
 
     func flee(from mouse: CGPoint, now: CFTimeInterval, boost: CGFloat) {
         if now >= panicUntil {
-            memory.remember(.mouse, detail: "鼠标靠得太近，我跑开了")
+            memory.remember(.mouse, detail: Copy.ui.flee)
         }
         pal = nil
         chatUntil = 0
@@ -795,6 +813,22 @@ final class Bot {
         panicUntil = now + 0.4 + 0.35 * boost
         actUntil = panicUntil
         steerUntil = panicUntil
+    }
+
+    func headHome(to target: CGPoint) {
+        homebound = true
+        pal = nil
+        chatUntil = 0
+        chatCool = 0
+        panicUntil = 0
+        bumpUntil = 0
+        act = .walk
+        aim = target
+        heading = atan2(target.y - y, target.x - x)
+        targetHeading = heading
+        speed = max(speed, 24)
+        targetSpeed = 38
+        sit = 0
     }
 
     func separate(from others: [Bot]) {

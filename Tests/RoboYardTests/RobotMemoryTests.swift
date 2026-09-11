@@ -31,8 +31,8 @@ struct RobotMemoryTests {
         #expect(memory.bodySize() == 32)
         #expect(memory.experiences.count == 32)
         #expect(memory.archivePending.count == 625)
-        #expect(memory.context().count <= 1400)
-        #expect(memory.context().contains("二维世界"))
+        #expect(memory.context(lang: .zh).count <= 1400)
+        #expect(memory.context(lang: .zh).contains("二维世界"))
     }
 
     @Test
@@ -54,13 +54,13 @@ struct RobotMemoryTests {
     func retrievesRelevantExperienceAfterItLeavesRecentMemory() {
         let memory = RobotMemory(id: 1, personality: MBTI.infp.rawValue)
         let start = Date(timeIntervalSince1970: 1000)
-        memory.meet(2, friendly: true, now: start)
+        memory.meet(2, friendly: true, now: start, lang: .zh)
         for i in 0..<40 {
             memory.remember(.speech, subject: "self", detail: "今天又走了一段路",
                             now: start.addingTimeInterval(Double(i + 1) * 10))
         }
         #expect(!memory.experiences.contains { $0.kind == .friend })
-        #expect(memory.context(kind: .friend, subject: "2").contains("又和2号聊了一会儿"))
+        #expect(memory.context(kind: .friend, subject: "2", lang: .zh).contains("又和2号聊了一会儿"))
     }
 
     @Test

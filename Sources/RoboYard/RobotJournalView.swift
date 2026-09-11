@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct RobotJournalView: View {
+    @ObservedObject private var voice = Voice.shared
     private let store: RobotMemoryStore
 
     init(store: RobotMemoryStore = .shared) {
@@ -10,14 +11,15 @@ struct RobotJournalView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { _ in
+            let copy = Copy.ui
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("它们正在成为自己")
+                        Text(copy.journalLead)
                             .font(.title2.bold())
-                        Text("经历写成文字，文字成为身体。成长由累计文本量决定。")
+                        Text(copy.journalBlurb)
                             .foregroundStyle(.secondary)
-                        Text("初生 → 2 千字·好奇 → 2 万字·沉思 → 10 万字·觉醒")
+                        Text(copy.journalLadder)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -34,7 +36,7 @@ struct RobotJournalView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("\(profile.name) · \(profile.stage().title)")
                                         .font(.headline)
-                                    Text("\(profile.mbti.code) · \(profile.textCount.formatted()) 字 · \(profile.experienceCount.formatted()) 段经历")
+                                    Text(copy.journalMeta(code: profile.mbti.code, chars: profile.textCount.formatted(), events: profile.experienceCount.formatted()))
                                         .font(.callout)
                                         .foregroundStyle(.secondary)
                                     if let colonist = Critters.shared.colonists.first(where: { $0.id == profile.id }) {
@@ -42,7 +44,7 @@ struct RobotJournalView: View {
                                             ProgressView(value: colonist.charge)
                                                 .progressViewStyle(.linear)
                                                 .frame(width: 88)
-                                            Text("电量 \(Int(colonist.charge * 100))% · \(colonist.post.title)")
+                                            Text(copy.chargeLine(Int(colonist.charge * 100), post: colonist.post.title))
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
@@ -65,7 +67,7 @@ struct RobotJournalView: View {
                                 .font(.caption)
                             }
                             if profile.experiences.isEmpty {
-                                Text("还没有写下第一段经历。")
+                                Text(copy.noMemories)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -74,7 +76,7 @@ struct RobotJournalView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(.background, in: RoundedRectangle(cornerRadius: 14))
                     }
-                    Text("减少显示数量不会抹掉记忆。原始经历保存在本机，模型每次只读取少量相关片段。")
+                    Text(copy.journalFoot)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -83,5 +85,6 @@ struct RobotJournalView: View {
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(minWidth: 520, minHeight: 400)
+        .id(voice.stamp)
     }
 }

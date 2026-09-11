@@ -8,12 +8,12 @@ enum ChargeLaw {
     static let limpBelow = 0.20
     static let crawlBelow = 0.08
     static let warehouseFill = 1.0 / 32
-    static let walkDrain = 1.0 / 210
-    static let sitDrain = 1.0 / 960
-    static let fleeDrain = 1.0 / 36
-    static let talkCost = 0.04
-    static let bumpCost = 0.018
-    static let scareCost = 0.028
+    static let walkDrain = (1.0 - goHomeBelow) / (30 * 60)
+    static let sitDrain = (1.0 - goHomeBelow) / (60 * 60)
+    static let fleeDrain = walkDrain * 6
+    static let talkCost = 0.003
+    static let bumpCost = 0.001
+    static let scareCost = 0.002
     static let sharePerSec = 0.06
     static let shareRadius = 40.0
 
@@ -24,14 +24,7 @@ enum ChargeLaw {
             self == .yard || self == .homing || self == .emerging
         }
 
-        var title: String {
-            switch self {
-            case .yard: "在桌上"
-            case .homing: "往回爬"
-            case .warehouse: "仓库里"
-            case .emerging: "爬出来"
-            }
-        }
+        var title: String { Copy.ui.postTitle(self) }
     }
 
     static func clamp(_ value: Double) -> Double { min(1, max(0, value)) }
@@ -40,12 +33,13 @@ enum ChargeLaw {
         clamp(charge + dt * warehouseFill)
     }
 
-    static func drain(_ charge: Double, dt: Double, speed: Double, fleeing: Bool, sitting: Bool, refused: Bool) -> Double {
+    static func drain(_ charge: Double, dt: Double, speed: Double, fleeing: Bool, sitting: Bool,
+                      refused: Bool, post: Post = .yard) -> Double {
+        if post == .homing { return clamp(charge) }
         let rest = refused ? 0.35 : 1
         if fleeing { return clamp(charge - dt * fleeDrain * rest) }
         if sitting { return clamp(charge - dt * sitDrain * rest) }
-        let motion = min(1, max(0, speed / 58))
-        return clamp(charge - dt * walkDrain * (0.35 + 0.65 * motion) * rest)
+        return clamp(charge - dt * walkDrain * rest)
     }
 
     static func share(rich: Double, poor: Double, dt: Double) -> (Double, Double) {
@@ -63,7 +57,7 @@ enum ChargeLaw {
     static func canTalk(_ charge: Double) -> Bool { charge >= talkBelow }
 
     static func shouldGoHome(_ charge: Double, post: Post) -> Bool {
-        post == .yard && charge <= goHomeBelow
+        post == .yard && charge <= goHomeBelow + 0.000_001
     }
 
     static func shouldLeaveStall(_ charge: Double) -> Bool { charge >= emergeAbove }

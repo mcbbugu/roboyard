@@ -48,7 +48,7 @@ struct CritterTalkTests {
         #expect(CritterTalk.cleaned("「借过」") == "借过")
         #expect(CritterTalk.cleaned("INTJ 走开") == nil)
         #expect(CritterTalk.cleaned("a") == nil)
-        #expect(CritterTalk.cleaned("这是一句特别长特别长特别长的台词会被截断")?.count == 18)
+        #expect(CritterTalk.cleaned("这是一句特别长特别长特别长的台词会被截断", lang: .zh)?.count == 18)
     }
 
     @Test
@@ -63,8 +63,18 @@ struct CritterTalkTests {
     func chatFollowUpThreadsTheOtherLine() {
         #expect(CritterTalk.chatFollowUp(replyTo: nil) == nil)
         #expect(CritterTalk.chatFollowUp(replyTo: " ") == nil)
-        let cue = CritterTalk.chatFollowUp(replyTo: "走到边就过不去")
+        let cue = CritterTalk.chatFollowUp(replyTo: "走到边就过不去", lang: .zh)
         #expect(cue?.contains("走到边就过不去") == true)
         #expect(cue?.contains("不要另起") == true)
+        let en = CritterTalk.chatFollowUp(replyTo: "hit the wall", lang: .en)
+        #expect(en?.contains("hit the wall") == true)
+        #expect(en?.contains("change the subject") == true)
+    }
+
+    @Test
+    func copySwitchesRobotNames() {
+        #expect(Copy(lang: .zh).robot(1) == "01 号")
+        #expect(Copy(lang: .en).robot(1) == "No. 01")
+        #expect(Copy(lang: .en).systemPrompt.contains("English") == true)
     }
 }

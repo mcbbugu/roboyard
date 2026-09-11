@@ -8,7 +8,7 @@ struct RoboYardApp: App {
         Settings { EmptyView() }
             .commands {
                 CommandGroup(after: .appInfo) {
-                    Button("成长记录…") { appDelegate.openJournal() }
+                    Button(Copy.ui.journalMenu) { appDelegate.openJournal() }
                         .keyboardShortcut("j")
                 }
             }
