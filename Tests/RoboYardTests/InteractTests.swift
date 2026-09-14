@@ -74,3 +74,19 @@ struct InteractTests {
         #expect(Copy(lang: .en).petLine(1).isEmpty == false)
     }
 }
+
+struct ScareBandTests {
+    @Test
+    func touchAlwaysScaresOuterBandNeedsSpeed() {
+        #expect(ScareLaw.shouldScare(distance: 0, speed: 0) == true)
+        #expect(ScareLaw.shouldScare(distance: 13.9, speed: 0) == true)
+        #expect(ScareLaw.shouldScare(distance: 14, speed: 0) == false)
+        #expect(ScareLaw.shouldScare(distance: 20, speed: 0) == false)
+        #expect(ScareLaw.shouldScare(distance: 20, speed: 250) == false)
+        #expect(ScareLaw.shouldScare(distance: 20, speed: 251) == true)
+        #expect(ScareLaw.shouldScare(distance: 35.9, speed: 1000) == true)
+        #expect(ScareLaw.shouldScare(distance: 36, speed: 1000) == false)
+        #expect(ScareLaw.shouldScare(distance: 100, speed: 4000) == false)
+        #expect(ScareLaw.calmAfterPet == 1.5)
+    }
+}

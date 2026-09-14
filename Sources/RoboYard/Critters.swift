@@ -55,6 +55,7 @@ final class Critters: NSObject {
     private var observers: [NSObjectProtocol] = []
     private var lastTick = CACurrentMediaTime()
     private var lastMouse = NSEvent.mouseLocation
+    private var mouseSpeed: CGFloat = 0
     private var mouseWasNear = false
     private var lingerApp = ""
     private var lingerSince = CACurrentMediaTime()
@@ -224,6 +225,10 @@ final class Critters: NSObject {
 
     private func pet(_ colonist: Colonist, bot: Bot, now: CFTimeInterval) {
         bot.petCool = now + PetLaw.cooldown
+        // The click catches it: stop fleeing and stay calm briefly so the
+        // still-parked pointer doesn't re-scare it next tick (fixes #4).
+        bot.panicUntil = 0
+        bot.calmUntil = now + ScareLaw.calmAfterPet
         colonist.charge = ChargeLaw.clamp(colonist.charge + PetLaw.chargeGain)
         let line = Copy.ui.petLine(colonist.id)
         colonist.memory.remember(.care, subject: "petted", detail: Copy.ui.petted(colonist.name))
@@ -294,7 +299,7 @@ final class Critters: NSObject {
         let visible = bots
         guard crawlOn || !visible.isEmpty else { return }
         ensureOverlays()
-        scareFromMouse(now: now)
+        scareFromMouse(now: now, dt: dt)
         meet(now: now)
         maybeLinger(now: now)
         maybeIdle(now: now)
@@ -328,8 +333,12 @@ final class Critters: NSObject {
         colonists.filter { Self.canScare(post: $0.post) }.compactMap(\.bot)
     }
 
-    private func scareFromMouse(now: CFTimeInterval) {
+    private func scareFromMouse(now: CFTimeInterval, dt: CGFloat) {
         let mouse = NSEvent.mouseLocation
+        if dt > 0.000_001 {
+            let instant = hypot(mouse.x - lastMouse.x, mouse.y - lastMouse.y) / dt
+            mouseSpeed += (min(instant, 4000) - mouseSpeed) * 0.35
+        }
         lastMouse = mouse
         var nearest: Bot?
         var nearestD: CGFloat = .greatestFiniteMagnitude
@@ -341,21 +350,25 @@ final class Critters: NSObject {
                 nearestD = d
                 nearest = c
             }
-            if d < 36 {
-                closeCount += 1
-                if now >= c.scareCool {
-                    c.scareCool = now + Self.scareCooldown
-                    if let colonist = owner(c) {
-                        colonist.charge = ChargeLaw.clamp(colonist.charge - ChargeLaw.scareCost)
-                    }
+            // A fresh pet grants brief calm; the touch band always scares,
+            // the outer band only for fast pointer movement (fixes #4).
+            guard now >= c.calmUntil,
+                  ScareLaw.shouldScare(distance: d, speed: mouseSpeed)
+            else { continue }
+            closeCount += 1
+            if now >= c.scareCool {
+                c.scareCool = now + Self.scareCooldown
+                if let colonist = owner(c) {
+                    colonist.charge = ChargeLaw.clamp(colonist.charge - ChargeLaw.scareCost)
                 }
-                c.aim = nil
-                c.flee(from: mouse, now: now, boost: 1)
             }
+            c.aim = nil
+            c.flee(from: mouse, now: now, boost: 1)
         }
         let near = closeCount > 0
         if near, !mouseWasNear {
             for c in active {
+                guard now >= c.calmUntil else { continue }
                 let d = hypot(c.x - mouse.x, c.y - mouse.y)
                 if d < 72 { c.flee(from: mouse, now: now, boost: 1) }
             }

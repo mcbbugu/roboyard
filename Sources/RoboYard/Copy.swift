@@ -112,7 +112,7 @@ struct Copy {
     }
     var continueCloud: String { t("继续用云端", "Use cloud") }
     var petClick: String { t("点按摸摸", "Click to pet") }
-    var petHint: String { t("在桌面上点一只机器人摸摸它", "Click a robot on the desktop to pet it") }
+    var petHint: String { t("悄悄靠近再点，动作太快会吓跑它们", "Sneak up, then click — fast moves scare them off") }
     var feedDesk: String { t("给桌上加餐", "Feed the desk") }
     func feedWait(_ secs: Int) -> String { t("加餐冷却中（\(secs)s）", "Feeding cools down (\(secs)s)") }
     var renameTitle: String { t("给机器人取名", "Name this robot") }

@@ -26,6 +26,7 @@ final class Bot {
     var chatCool: CFTimeInterval = 0
     var scareCool: CFTimeInterval = 0
     var petCool: CFTimeInterval = 0
+    var calmUntil: CFTimeInterval = 0
     var actUntil: CFTimeInterval = 0
     var act: Act = .walk
     var edge: Int = 0

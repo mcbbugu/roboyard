@@ -1,6 +1,12 @@
 # Changelog
 
-## 5.0.0 — 2026-09-14
+## 5.1.0 — 2026-09-14
+
+Sneak vs swipe (#4).
+
+- Scare bands: touching (<14px) always scares; the outer band (14–36px) only scares on fast pointer movement (>250px/s, smoothed per tick). Slow sneaks and parked pointers stay calm, so click-to-pet finally works.
+- Click catches: pet radius 44→56px; a successful pet clears panic and grants 1.5s personal calm so the parked pointer doesn't re-scare next tick.
+- Pet menu hint now teaches the sneak.
 
 The robots get faces.
 
