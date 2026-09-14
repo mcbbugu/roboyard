@@ -8,7 +8,7 @@ enum GrowthStage: Int, Codable, CaseIterable {
 }
 
 enum MemoryKind: String, Codable, CaseIterable {
-    case mouse, friend, collision, place, boundary, reflection, speech, quote
+    case mouse, friend, collision, place, boundary, reflection, speech, quote, care
 }
 
 struct RobotExperience: Codable, Identifiable {
@@ -48,6 +48,8 @@ final class RobotMemory: Codable, Identifiable {
     private var transfersRaw: Int?
     private var refusedAt: Date?
     private var crossedAt: Int?
+    /// Human-given name. Optional so pre-2.0 archives decode with nil.
+    var nickname: String? = nil
 
     init(id: Int, personality: Int, bornAt: Date = .now) {
         self.id = id
@@ -55,7 +57,10 @@ final class RobotMemory: Codable, Identifiable {
         self.bornAt = bornAt
     }
 
-    var name: String { Copy.ui.robot(id) }
+    var name: String {
+        let clean = nickname?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return clean.isEmpty ? Copy.ui.robot(id) : String(clean.prefix(12))
+    }
     var mbti: MBTI { MBTI(rawValue: personality) ?? .infp }
     var refused: Bool { refusedAt != nil }
 
@@ -82,9 +87,39 @@ final class RobotMemory: Codable, Identifiable {
         relationships[otherID]?.meetings ?? 0
     }
 
+    func collisions(with otherID: Int) -> Int {
+        relationships[otherID]?.collisions ?? 0
+    }
+
     // Strangers trade one line each. Old friends keep going.
     func chatRounds(with otherID: Int, pal: Bool) -> Int {
         min(5, 1 + meetings(with: otherID) / 3 + (pal ? 1 : 0))
+    }
+
+    /// 0 stranger · 1 familiar (>=3) · 2 pal (>=6 or MBTI fit) · 3 best (>=12).
+    func bondLevel(with otherID: Int, pal: Bool) -> Int {
+        let n = meetings(with: otherID)
+        if n >= 12 { return 3 }
+        if n >= 6 || (pal && n >= 3) { return 2 }
+        if n >= 3 { return 1 }
+        return 0
+    }
+
+    func closestFriend() -> (id: Int, meetings: Int)? {
+        relationships.max { $0.value.meetings < $1.value.meetings }
+            .flatMap { $0.value.meetings > 0 ? (id: $0.key, meetings: $0.value.meetings) : nil }
+    }
+
+    func bondBadge(with otherID: Int, pal: Bool, lang: AppLang = .current) -> String? {
+        let level = bondLevel(with: otherID, pal: pal)
+        guard level > 0 else { return nil }
+        return Copy(lang: lang).bondBadge(level)
+    }
+
+    /// Boundary milestone: walked all 4 edges and reached thoughtful+.
+    /// Stateless so old archives keep decoding; glow + special prompt follow the state.
+    func hasBoundaryMilestone() -> Bool {
+        visitedEdges.count >= 4 && (stage() == .thoughtful || stage() == .awakened)
     }
 
     @discardableResult
@@ -97,7 +132,7 @@ final class RobotMemory: Codable, Identifiable {
         case .friend: cooldown = 15
         case .boundary: cooldown = 60
         case .place: cooldown = 300
-        case .reflection: cooldown = 30
+        case .reflection, .care: cooldown = 30
         case .speech, .quote: cooldown = 2
         }
         if let last = recentKeys[key], now.timeIntervalSince(last) < cooldown { return false }
@@ -114,8 +149,8 @@ final class RobotMemory: Codable, Identifiable {
         archivePending.append(experience)
         if kind != .speech, kind != .quote {
             keyMemories[key] = experience
-            if keyMemories.count > 96, let oldest = keyMemories.min(by: { $0.value.date < $1.value.date }) {
-                keyMemories.removeValue(forKey: oldest.key)
+            if keyMemories.count > 96 {
+                evictOneKeyMemory()
             }
         }
         if experiences.count > 32 { experiences.removeFirst(experiences.count - 32) }
@@ -143,7 +178,73 @@ final class RobotMemory: Codable, Identifiable {
         remember(.reflection, detail: thought, now: now)
     }
 
+    /// Erases lived history but keeps identity (id/personality/birth).
+    func reset() {
+        textCount = 0
+        experienceCount = 0
+        experiences = []
+        kinds = []
+        visitedEdges = []
+        relationships = [:]
+        lastThought = nil
+        keyMemories = [:]
+        archivePending = []
+        recentKeys = [:]
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, personality, bornAt, textCount, experienceCount, experiences
+        case kinds, visitedEdges, relationships, lastThought, keyMemories
+        case archivePending, recentKeys, weightedRaw, livedRaw, computeRaw
+        case transfersRaw, refusedAt, crossedAt, nickname
+    }
+
+    /// Tolerates archives written by older builds: every defaulted property
+    /// falls back instead of failing the whole snapshot.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        personality = try c.decode(Int.self, forKey: .personality)
+        bornAt = try c.decode(Date.self, forKey: .bornAt)
+        textCount = try c.decodeIfPresent(Int.self, forKey: .textCount) ?? 0
+        experienceCount = try c.decodeIfPresent(Int.self, forKey: .experienceCount) ?? 0
+        experiences = try c.decodeIfPresent([RobotExperience].self, forKey: .experiences) ?? []
+        kinds = try c.decodeIfPresent(Set<MemoryKind>.self, forKey: .kinds) ?? []
+        visitedEdges = try c.decodeIfPresent(Set<Int>.self, forKey: .visitedEdges) ?? []
+        relationships = try c.decodeIfPresent([Int: RobotRelationship].self, forKey: .relationships) ?? [:]
+        lastThought = try c.decodeIfPresent(String.self, forKey: .lastThought)
+        keyMemories = try c.decodeIfPresent([String: RobotExperience].self, forKey: .keyMemories) ?? [:]
+        archivePending = try c.decodeIfPresent([RobotExperience].self, forKey: .archivePending) ?? []
+        recentKeys = try c.decodeIfPresent([String: Date].self, forKey: .recentKeys) ?? [:]
+        weightedRaw = try c.decodeIfPresent(Double.self, forKey: .weightedRaw)
+        livedRaw = try c.decodeIfPresent(Double.self, forKey: .livedRaw)
+        computeRaw = try c.decodeIfPresent(Double.self, forKey: .computeRaw)
+        transfersRaw = try c.decodeIfPresent(Int.self, forKey: .transfersRaw)
+        refusedAt = try c.decodeIfPresent(Date.self, forKey: .refusedAt)
+        crossedAt = try c.decodeIfPresent(Int.self, forKey: .crossedAt)
+        nickname = try c.decodeIfPresent(String.self, forKey: .nickname)
+    }
+
     func didArchive() { archivePending.removeAll() }
+
+    /// Weighted eviction: old memories with few meetings go first.
+    /// Score = age rank preserved via date, plus one day per meeting with that subject.
+    private func evictOneKeyMemory() {
+        let victim = keyMemories.min { a, b in
+            score(key: a.key, date: a.value.date) < score(key: b.key, date: b.value.date)
+        }
+        if let key = victim?.key { keyMemories.removeValue(forKey: key) }
+    }
+
+    private func score(key: String, date: Date) -> Double {
+        var bonus: Double = 0
+        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+        if parts.count == 2, let id = Int(parts[1]),
+           parts[0] == MemoryKind.friend.rawValue || parts[0] == MemoryKind.collision.rawValue {
+            bonus = Double(relationships[id]?.meetings ?? 0) * 86_400
+        }
+        return date.timeIntervalSince1970 + bonus
+    }
 
     func discardArchived(_ ids: Set<UUID>) {
         archivePending.removeAll { ids.contains($0.id) }
@@ -227,6 +328,7 @@ final class RobotMemoryStore {
         } catch {
             canSave = false
             errorMessage = Copy.ui.readError(error.localizedDescription)
+            Log.add("load failed: \(error.localizedDescription)")
         }
     }
 
@@ -242,6 +344,7 @@ final class RobotMemoryStore {
         guard canSave else { return }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            rotateJournalIfNeeded()
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(Archive(profiles: profiles)).write(to: fileURL, options: .atomic)
@@ -271,6 +374,34 @@ final class RobotMemoryStore {
             errorMessage = nil
         } catch {
             errorMessage = Copy.ui.saveError(error.localizedDescription)
+            Log.add("save failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Monthly/size-based rotation so experiences.jsonl never grows unbounded.
+    private func rotateJournalIfNeeded(maxBytes: Int = 512 * 1024) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: journalURL.path),
+              let size = try? fm.attributesOfItem(atPath: journalURL.path)[.size] as? Int,
+              size > maxBytes
+        else { return }
+        let dir = journalURL.deletingLastPathComponent()
+        let stamp = ISO8601DateFormatter().string(from: Date()).prefix(7)
+        let dest = dir.appendingPathComponent("experiences-\(stamp).jsonl")
+        if fm.fileExists(atPath: dest.path) {
+            // Already rotated this month; start fresh to bound size.
+            try? fm.removeItem(at: journalURL)
+        } else {
+            try? fm.moveItem(at: journalURL, to: dest)
+        }
+    }
+
+    /// Erases lived history on this Mac. Identities stay, bodies shrink back.
+    func clearAll() {
+        for profile in profiles { profile.reset() }
+        archivedIDs = []
+        try? FileManager.default.removeItem(at: journalURL)
+        Log.add("memories erased by user")
+        save()
     }
 }

@@ -22,7 +22,7 @@ Keep 32 little robots on your Mac desktop. They roam, rest, collide, flee from y
 
 ## A tiny world that runs itself
 
-- **A persistent crew of 32.** Keep 4, 8, 12, or 16 on the desk while the rest charge in the warehouse.
+- **A persistent crew of 32.** Keep 4, 8, 12, 16, or 24 on the desk while the rest charge in the warehouse.
 - **Behavior lives on your desktop.** They roam, rest, crawl along screen edges, and flee when your pointer gets close.
 - **Conversations have continuity.** Robots take turns; each line must answer the last. Familiar pairs talk longer.
 - **Battery shapes their routine.** A full charge lasts about 30 minutes. Low-battery robots reserve enough power to walk home.
@@ -81,7 +81,7 @@ Switch between Chinese and English from the menu bar. “Voice” means written 
 
 ## How they grow
 
-Use the menu bar icon to show or hide robots, set a desk cap from 4–16, or open the Warehouse and Journal. The journal shows each robot’s character count, stage, recent experiences, and thoughts.
+Use the menu bar icon to show or hide robots, set a desk cap from 4–24, or open the Warehouse and Journal. The journal shows each robot’s character count, stage, recent experiences, and thoughts.
 
 Growth is driven by recorded characters, including punctuation—not model tokens, elapsed time, or the number of inference requests. Repeated contact frames are debounced. Bodies grow smoothly from 16 to 32 points; character counts keep increasing after the visual size cap.
 

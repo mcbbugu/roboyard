@@ -101,6 +101,39 @@ struct Copy {
     func chargeLine(_ percent: Int, post: String) -> String {
         t("电量 \(percent)% · \(post)", "\(percent)% · \(post)")
     }
+    var powerSaver: String { t("省电模式（30fps）", "Power saver (30fps)") }
+    var powerHint: String { t("降帧省电，静止时更少重绘", "Lower frame rate, fewer repaints when idle") }
+    var shareAppName: String { t("台词带上应用名", "Include app names in prompts") }
+    var shareAppHint: String { t("关掉后，对话提示不再包含窗口所属应用名", "Off: prompts never include window app names") }
+    var cloudTitle: String { t("切换到云端对话？", "Switch to cloud dialogue?") }
+    var cloudBody: String {
+        t("云端会把台词提示（含记忆片段、应用名）发到 DeepSeek，会产生费用并离开本机。确定继续吗？",
+          "Cloud sends speech prompts (memories, app names) to DeepSeek. It costs money and leaves this Mac. Continue?")
+    }
+    var continueCloud: String { t("继续用云端", "Use cloud") }
+    var petClick: String { t("点按摸摸", "Click to pet") }
+    var petHint: String { t("在桌面上点一只机器人摸摸它", "Click a robot on the desktop to pet it") }
+    var feedDesk: String { t("给桌上加餐", "Feed the desk") }
+    func feedWait(_ secs: Int) -> String { t("加餐冷却中（\(secs)s）", "Feeding cools down (\(secs)s)") }
+    var renameTitle: String { t("给机器人取名", "Name this robot") }
+    var renameBody: String { t("最多 12 字，清空恢复编号。", "Max 12 chars. Clear to restore its number.") }
+    func petLine(_ id: Int) -> String {
+        let zh = ["嘿嘿", "暖暖的", "再摸一下", "呼噜…"]
+        let en = ["hehe", "warm", "again", "purr…"]
+        let lines = lang == .zh ? zh : en
+        return lines[abs(id) % lines.count]
+    }
+    func petted(_ name: String) -> String { t("被\(name)摸了摸", "petted by \(name)") }
+    func fed(_ name: String) -> String { t("\(name)给桌上加了餐", "\(name) fed the desk") }
+    func renamed(_ name: String) -> String { t("从此叫\(name)了", "now called \(name)") }
+    var exportMemories: String { t("导出记忆", "Export memories") }
+    var clearMemories: String { t("清空记忆…", "Erase memories…") }
+    var clearTitle: String { t("清空所有记忆？", "Erase all memories?") }
+    var clearBody: String { t("32 只机器人的经历、关系和字数都会清零，体型回到最小，不可撤销。", "All 32 robots lose experiences, relationships, and size. This cannot be undone.") }
+    var clearConfirm: String { t("清空", "Erase") }
+    func minutesLeft(_ mins: Int) -> String {
+        t("还能在桌上约 \(mins) 分钟", "about \(mins) min left on desk")
+    }
     var noMemories: String { t("还没有写下第一段经历。", "No memories yet.") }
     var journalFoot: String {
         t("减少显示数量不会抹掉记忆。原始经历保存在本机，模型每次只读取少量相关片段。",
@@ -229,6 +262,24 @@ struct Copy {
     func familiar(_ id: Int, times: Int) -> String {
         t("最熟悉\(id)号，一起聊过\(times)次。", "closest with No. \(id), \(times) chats.")
     }
+    func bondBadge(_ level: Int) -> String {
+        switch level {
+        case 3: return t("挚友", "best pals")
+        case 2: return t("老友", "old pals")
+        default: return t("熟人", "familiar")
+        }
+    }
+    func chatOpenFor(other: String, meetings: Int, pal: Bool) -> String {
+        if meetings >= 12 {
+            return t("老熟人\(other)又来了，直接接上你们聊过的事开头。",
+                     "Your best pal \(other) is back. Pick up where you left off.")
+        }
+        if meetings >= 3 {
+            return t("你开口跟老朋友说话。对方风格：\(other)。聊点你们之前聊过的那种话题。",
+                     "You greet an old friend. Their vibe: \(other). Talk like you have history.")
+        }
+        return chatOpen(other)
+    }
     func withPal(_ id: String, times: Int) -> String {
         t("眼前是\(id)号，你们聊过\(times)次。", "No. \(id) is here; you’ve talked \(times) times.")
     }
@@ -262,10 +313,29 @@ struct Copy {
         t("被撞了，正追着对方骂。对方风格：\(other)。",
           "You got bumped. You’re scolding them. Their vibe: \(other).")
     }
+    func scoldCueFor(other: String, collisions: Int) -> String {
+        if collisions >= 6 {
+            return t("又是\(other)！都撞第\(collisions)次了，新仇旧账一起算。",
+                     "It’s \(other) AGAIN — collision number \(collisions). Settle it all now.")
+        }
+        return scoldCue(other)
+    }
+    var quietNights: String { t("夜间安静（23–7 点）", "Quiet nights (11pm–7am)") }
+    var quietHint: String { t("半夜只跑不说话，锁屏时也一样", "They run silent at night and while locked") }
+    var onboardTitle: String { t("欢迎来到 RoboYard", "Welcome to RoboYard") }
+    var onboardBody: String {
+        t("1）在桌面上点它们可以摸摸；2）菜单栏能加餐、开仓库；3）装个 Ollama 并 pull qwen3.5:2b，它们就会说话。半夜它们会自动安静。",
+          "1) Click them to pet. 2) The menu bar feeds and opens the warehouse. 3) Install Ollama + pull qwen3.5:2b and they talk. They go quiet at night.")
+    }
     var reflectCue: String {
         t("安静下来，回想一件亲历的事，说出此刻冒出的一个疑问。让思考符合你的成长阶段。",
           "Quiet down. Recall something you lived, then say the question that pops up. Match your growth stage.")
     }
+    var reflectMilestone: String {
+        t("你已经走遍世界的四边，每一边都撞过墙。把这件事说出来，再问一个关于世界之外的具体问题：除了左右上下，是否还有另一个方向？",
+          "You have walked all four edges and hit every wall. Say so, then ask one concrete question about beyond: is there another direction besides left-right and up-down?")
+    }
+    var milestoneBadge: String { t("走遍四边", "edge-walker") }
     func chatFollow(_ line: String) -> String {
         t("你在和同伴对话。对方刚说：\(line)。必须接这一句，问答、顺着说或轻轻反驳都行，不要另起一个无关话题。",
           "You’re in a conversation. They just said: \(line). Answer that line — question, follow, or mild pushback. Don’t change the subject.")

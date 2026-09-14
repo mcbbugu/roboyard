@@ -13,6 +13,12 @@ final class CritterTalk {
     static let providerKey = "critter.talk.provider"
     static let cloudModelKey = "critter.deepseek.model"
     static let apiKeyKey = "critter.deepseek.apiKey"
+    static let shareAppKey = "critter.shareApp"
+
+    var shareAppName: Bool {
+        get { UserDefaults.standard.object(forKey: Self.shareAppKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: Self.shareAppKey) }
+    }
 
     enum Provider: String {
         case ollama
@@ -45,10 +51,21 @@ final class CritterTalk {
     }
 
     private var busy = false
-    private var pendingUrgent: CheckedContinuation<Bool, Never>?
+    private var waiters: [Waiter] = []
     private var last: CFTimeInterval = 0
     private let gap: CFTimeInterval = 8
     private(set) var reachability: Reachability = .unknown
+    // Dedup: same conversational trigger within 30s reuses the last line.
+    private var lastDedupKey: String?
+    private var lastDedupAt: CFTimeInterval = 0
+    private var lastDedupLine: String?
+    private let dedupWindow: CFTimeInterval = 30
+    private let maxQueue = 8
+
+    private struct Waiter {
+        let urgent: Bool
+        let continuation: CheckedContinuation<Bool, Never>
+    }
 
     var provider: Provider {
         get { Provider(rawValue: UserDefaults.standard.string(forKey: Self.providerKey) ?? "") ?? .ollama }
@@ -108,15 +125,19 @@ final class CritterTalk {
         }
     }
 
-    func speak(event: Event, vibe: String, other: String?, app: String?, urgent: Bool, memory: String, replyTo: String? = nil) async -> String? {
+    func speak(event: Event, vibe: String, other: String?, app: String?, urgent: Bool, memory: String, replyTo: String? = nil, meetings: Int = 0, pal: Bool = false, milestone: Bool = false, grudge: Int = 0) async -> String? {
+        let key = Self.dedupKey(event: event, other: other, replyTo: replyTo)
+        let now0 = CACurrentMediaTime()
+        if let line = cachedLine(for: key, now: now0) { return line }
         guard await acquire(urgent: urgent) else { return nil }
         defer { release() }
         let now = CACurrentMediaTime()
         if !urgent, now - last < gap { return nil }
         last = now
         let copy = Copy.ui
-        let appName = (app?.isEmpty == false) ? app! : copy.desktop
-        var user = "\(memory)\n\(copy.speakStyle)：\(vibe)。\(copy.oneLine)"
+        let appName = Self.sanitizedAppName(app, fallback: copy.desktop)
+        // Explicit sections so window names / memories can't blur into instructions.
+        var user = "【记忆】\n\(memory)\n【要求】\n\(copy.speakStyle)：\(vibe)。\(copy.oneLine)"
         switch event {
         case .flee: user += copy.fleeCue
         case .linger: user += copy.lingerCue(appName)
@@ -125,14 +146,34 @@ final class CritterTalk {
             if let cue = Self.chatFollowUp(replyTo: replyTo, lang: copy.lang) {
                 user += cue
             } else {
-                user += copy.chatOpen(other ?? copy.palFallback)
+                user += copy.chatOpenFor(other: other ?? copy.palFallback, meetings: meetings, pal: pal)
             }
-        case .scold: user += copy.scoldCue(other ?? copy.strangerFallback)
-        case .reflect: user += copy.reflectCue
+        case .scold: user += copy.scoldCueFor(other: other ?? copy.strangerFallback, collisions: grudge)
+        case .reflect: user += milestone ? copy.reflectMilestone : copy.reflectCue
         }
         let line = await ask(user)
         if line != nil { reachability = .connected }
+        if let line { storeDedup(key: key, line: line, now: CACurrentMediaTime()) }
         return line
+    }
+
+    nonisolated static func dedupKey(event: Event, other: String?, replyTo: String?) -> String {
+        let reply = replyTo?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let otherKey = other?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return "\(event.memoryKind.rawValue)|\(otherKey.prefix(24))|\(reply.prefix(24))"
+    }
+
+    /// Sanitizes a window/app name before it enters an LLM prompt.
+    /// Keeps CJK/alphanumerics and a few separators, caps length, drops control chars.
+    nonisolated static func sanitizedAppName(_ raw: String?, fallback: String) -> String {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return fallback }
+        let allowed = CharacterSet.alphanumerics
+            .union(CharacterSet(charactersIn: " ·-_.()（）[]「」『』+"))
+            .union(CharacterSet(charactersIn: "\u{4E00}"..."\u{9FFF}"))
+        let filtered = String(trimmed.unicodeScalars.filter { allowed.contains($0) }.prefix(24))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return filtered.isEmpty ? fallback : filtered
     }
 
     nonisolated static func chatFollowUp(replyTo: String?, lang: AppLang = .current) -> String? {
@@ -185,10 +226,23 @@ final class CritterTalk {
         s = s.replacingOccurrences(of: "^[\"「『]+|[\"」』]+$", with: "", options: .regularExpression)
         if let nl = s.firstIndex(of: "\n") { s = String(s[..<nl]) }
         s = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        let banned = ["系统", "指令", "用户", "assistant", "prompt", "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP", "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"]
-        if banned.contains(where: { s.localizedCaseInsensitiveContains($0) }) { return nil }
+        // Hard block: prompt-injection markers. MBTI codes are stripped, not dropped.
+        let blocked = ["系统", "指令", "用户", "assistant", "prompt", "system prompt", "ignore previous"]
+        if blocked.contains(where: { s.localizedCaseInsensitiveContains($0) }) { return nil }
+        if let r = try? NSRegularExpression(pattern: #"(?<![A-Za-z])(INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)(?![A-Za-z])"#, options: .caseInsensitive) {
+            s = r.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
+        }
+        s = s.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let cap = Copy(lang: lang).maxLine
-        if s.count > cap { s = String(s.prefix(cap)) }
+        if s.count > cap {
+            if lang == .en, let idx = s.prefix(cap).lastIndex(of: " ") {
+                s = String(s[..<idx])
+            } else {
+                s = String(s.prefix(cap))
+            }
+        }
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.count < 2 { return nil }
         return s
     }
@@ -218,21 +272,39 @@ final class CritterTalk {
             busy = true
             return true
         }
-        if !urgent { return false }
-        if let old = pendingUrgent {
-            pendingUrgent = nil
-            old.resume(returning: false)
+        if waiters.count >= maxQueue { return false }
+        // Urgent jumps ahead of queued non-urgent work, but never starves FIFO order
+        // within the same urgency class.
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            let waiter = Waiter(urgent: urgent, continuation: cont)
+            if urgent, let idx = waiters.firstIndex(where: { !$0.urgent }) {
+                waiters.insert(waiter, at: idx)
+            } else if urgent {
+                waiters.insert(waiter, at: 0)
+            } else {
+                waiters.append(waiter)
+            }
         }
-        return await withCheckedContinuation { pendingUrgent = $0 }
     }
 
     private func release() {
-        if let next = pendingUrgent {
-            pendingUrgent = nil
-            next.resume(returning: true)
+        if !waiters.isEmpty {
+            let next = waiters.removeFirst()
+            next.continuation.resume(returning: true)
             return
         }
         busy = false
+    }
+
+    private func cachedLine(for key: String, now: CFTimeInterval) -> String? {
+        guard key == lastDedupKey, now - lastDedupAt < dedupWindow else { return nil }
+        return lastDedupLine
+    }
+
+    private func storeDedup(key: String, line: String, now: CFTimeInterval) {
+        lastDedupKey = key
+        lastDedupAt = now
+        lastDedupLine = line
     }
 
     private func ask(_ user: String) async -> String? {
@@ -292,7 +364,9 @@ final class CritterTalk {
         var req = req
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
         req.httpBody = data
-        guard let (raw, _) = try? await URLSession.shared.data(for: req),
+        guard let (raw, response) = try? await URLSession.shared.data(for: req),
+              let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode),
               let obj = try? JSONSerialization.jsonObject(with: raw) as? [String: Any]
         else { return nil }
         return Self.cleaned(Self.extract(obj))

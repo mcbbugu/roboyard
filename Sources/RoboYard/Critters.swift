@@ -7,8 +7,28 @@ final class Critters: NSObject {
 
     static let crawlKey = "critter.crawl"
     static let countKey = "critter.count"
-    static let countChoices = [4, 8, 12, 16]
+    static let powerKey = "critter.powersaver"
+    nonisolated static let countChoices = [4, 8, 12, 16, 24]
     static let rosterSize = ChargeLaw.roster
+
+    var powerSaver: Bool {
+        get { UserDefaults.standard.object(forKey: Self.powerKey) as? Bool ?? false }
+        set { UserDefaults.standard.set(newValue, forKey: Self.powerKey); restartTimer() }
+    }
+
+    var petClick: Bool {
+        get { UserDefaults.standard.object(forKey: PetLaw.clickKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: PetLaw.clickKey) }
+    }
+
+    var quietNights: Bool {
+        get { UserDefaults.standard.object(forKey: Rhythm.quietKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: Rhythm.quietKey) }
+    }
+
+    private(set) var screenAsleep = false
+
+    var bubbleCap: Int { powerSaver ? 4 : 8 }
 
     var crawlOn: Bool {
         get { UserDefaults.standard.object(forKey: Self.crawlKey) as? Bool ?? true }
@@ -18,10 +38,10 @@ final class Critters: NSObject {
     var count: Int {
         get {
             let n = UserDefaults.standard.object(forKey: Self.countKey) as? Int ?? 8
-            return min(16, max(4, n))
+            return min(24, max(4, n))
         }
         set {
-            UserDefaults.standard.set(min(16, max(4, newValue)), forKey: Self.countKey)
+            UserDefaults.standard.set(min(24, max(4, newValue)), forKey: Self.countKey)
             trimYardToCap()
         }
     }
@@ -43,6 +63,19 @@ final class Critters: NSObject {
     private var nextSave = CACurrentMediaTime() + 15
     private var nextPing = CACurrentMediaTime() + 5
     private var pendingReleaseID: Int?
+    private var frame = 0
+    private var clickMonitor: Any?
+    private var lastFeed: CFTimeInterval = 0
+    private var sleepObservers: [NSObjectProtocol] = []
+
+    func restartTimer() {
+        timer?.invalidate()
+        let interval = powerSaver ? 1.0 / 30.0 : 1.0 / 60.0
+        let t = Timer(timeInterval: interval, target: self, selector: #selector(objcTick), userInfo: nil, repeats: true)
+        t.tolerance = 0.004
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
 
     func start() {
         guard observers.isEmpty else { return }
@@ -52,16 +85,26 @@ final class Critters: NSObject {
                 Task { @MainActor in self?.resetCrawlers() }
             },
         ]
+        let wc = NSWorkspace.shared.notificationCenter
+        sleepObservers = [
+            wc.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.screenAsleep = true }
+            },
+            wc.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.screenAsleep = false }
+            },
+        ]
         apply()
         if colonists.isEmpty { bootColony() }
         if crawlOn {
             ensureOverlays()
             fillYard()
         }
-        let timer = Timer(timeInterval: 1.0 / 60.0, target: self, selector: #selector(objcTick), userInfo: nil, repeats: true)
+        let timer = Timer(timeInterval: powerSaver ? 1.0 / 30.0 : 1.0 / 60.0, target: self, selector: #selector(objcTick), userInfo: nil, repeats: true)
         timer.tolerance = 0.004
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        watchClicks()
     }
 
     @objc private func objcTick() {
@@ -71,6 +114,12 @@ final class Critters: NSObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        if let monitor = clickMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickMonitor = nil
+        }
+        sleepObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        sleepObservers = []
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         RobotMemoryStore.shared.save()
@@ -99,10 +148,18 @@ final class Critters: NSObject {
     }
 
     func roster() -> [YardRow] {
-        colonists.map {
-            YardRow(id: $0.id, name: $0.name, code: $0.mbti.code, stage: $0.memory.stage().title,
-                    charge: $0.charge, post: $0.post, refused: $0.memory.refused,
-                    bodySize: $0.memory.bodySize(), worldVisible: crawlOn)
+        colonists.map { c in
+            let friend = c.memory.closestFriend()
+            var badges: [String] = []
+            if let friend {
+                let level = friend.meetings >= 12 ? 3 : friend.meetings >= 6 ? 2 : friend.meetings >= 3 ? 1 : 0
+                if level > 0 { badges.append(Copy.ui.bondBadge(level) + " · \(friend.id)号") }
+            }
+            if c.memory.hasBoundaryMilestone() { badges.append(Copy.ui.milestoneBadge) }
+            let badge: String? = badges.isEmpty ? nil : badges.joined(separator: " · ")
+            return YardRow(id: c.id, name: c.name, code: c.mbti.code, stage: c.memory.stage().title,
+                           charge: c.charge, post: c.post, refused: c.memory.refused,
+                           bodySize: c.memory.bodySize(), worldVisible: crawlOn, friendBadge: badge)
         }
     }
 
@@ -126,6 +183,69 @@ final class Critters: NSObject {
         case .warehouse:
             release(colonist)
         }
+    }
+
+    // MARK: - 2.0 interaction: pet, feed, rename
+
+    private func watchClicks() {
+        guard clickMonitor == nil else { return }
+        // Global monitor observes without swallowing: the desktop stays clickable.
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            Task { @MainActor in self?.handleClickPet() }
+        }
+    }
+
+    private func handleClickPet() {
+        guard petClick, crawlOn, !NSApp.isActive else { return }
+        let point = NSEvent.mouseLocation
+        let now = CACurrentMediaTime()
+        let candidates = scareBots().map { (id: $0.id, point: $0.point) }
+        guard let id = PetLaw.target(at: point, among: candidates),
+              let colonist = colonists.first(where: { $0.id == id }),
+              let bot = colonist.bot,
+              PetLaw.canPet(lastPet: bot.petCool, now: now)
+        else { return }
+        pet(colonist, bot: bot, now: now)
+    }
+
+    private func pet(_ colonist: Colonist, bot: Bot, now: CFTimeInterval) {
+        bot.petCool = now + PetLaw.cooldown
+        colonist.charge = ChargeLaw.clamp(colonist.charge + PetLaw.chargeGain)
+        let line = Copy.ui.petLine(colonist.id)
+        colonist.memory.remember(.care, subject: "petted", detail: Copy.ui.petted(colonist.name))
+        colonist.memory.remember(.speech, subject: "self", detail: line)
+        colonist.highlightUntil = now + 1.2
+        popBubble(text: line, now: now, bot: bot)
+    }
+
+    /// Seconds until feeding is available again. 0 means ready now.
+    func feedCooldownLeft(now: CFTimeInterval = CACurrentMediaTime()) -> Int {
+        max(0, Int(ceil(lastFeed + PetLaw.feedCooldown - now)))
+    }
+
+    @discardableResult
+    func feedDesk(now: CFTimeInterval = CACurrentMediaTime()) -> Bool {
+        guard PetLaw.canFeed(lastFeed: lastFeed, now: now) else { return false }
+        let diners = colonists.filter { $0.post == .yard }
+        guard !diners.isEmpty else { return false }
+        lastFeed = now
+        for colonist in diners {
+            colonist.charge = ChargeLaw.clamp(colonist.charge + PetLaw.feedGain)
+            colonist.memory.remember(.care, subject: "fed", detail: Copy.ui.fed(colonist.name), now: Date())
+            colonist.highlightUntil = now + 1.2
+        }
+        return true
+    }
+
+    func rename(_ id: Int, to raw: String) {
+        guard let colonist = colonists.first(where: { $0.id == id }) else { return }
+        let clean = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(12))
+        colonist.memory.nickname = clean.isEmpty ? nil : clean
+        if !clean.isEmpty {
+            colonist.memory.remember(.care, subject: "renamed", detail: Copy.ui.renamed(clean))
+        }
+        ping(id)
+        RobotMemoryStore.shared.save()
     }
 
     private func deskRoom() -> Int {
@@ -164,20 +284,34 @@ final class Critters: NSObject {
         meet(now: now)
         maybeLinger(now: now)
         maybeIdle(now: now)
-        shareCharge(dt: dt)
+        shareCharge(now: now, dt: dt)
         let contacts = BotPhysics.advance(visible, now: now, dt: dt)
         collide(contacts, now: now)
+        frame += 1
+        let milestoneIDs = Set(colonists.filter { $0.memory.hasBoundaryMilestone() }.map(\.id))
         for swarm in swarms {
             let box = swarm.panel.frame
             swarm.canvas.lid = lid
-            swarm.canvas.highlights = Set(colonists.filter { $0.highlightUntil > now }.map(\.id))
+            var glow = Set(colonists.filter { $0.highlightUntil > now }.map(\.id))
+            glow.formUnion(milestoneIDs)
+            swarm.canvas.highlights = glow
             swarm.canvas.bots = visible.filter { $0.screenIndex == swarm.index }
             for bot in swarm.canvas.bots {
                 bot.home = box
                 if bot.aim == nil { bot.clampHome() }
             }
+            if powerSaver {
+                // Saver: redraw every frame only when something moves;
+                // planted crowds refresh at ~10fps for blinking.
+                let moving = swarm.canvas.bots.contains { !$0.planted || $0.speed > 1 }
+                if !moving, frame % 3 != 0 { continue }
+            }
             swarm.canvas.needsDisplay = true
         }
+    }
+
+    private func scareBots() -> [Bot] {
+        colonists.filter { Self.canScare(post: $0.post) }.compactMap(\.bot)
     }
 
     private func scareFromMouse(now: CFTimeInterval) {
@@ -186,7 +320,7 @@ final class Critters: NSObject {
         var nearest: Bot?
         var nearestD: CGFloat = .greatestFiniteMagnitude
         var closeCount = 0
-        let active = yardBots()
+        let active = scareBots()
         for c in active {
             let d = hypot(c.x - mouse.x, c.y - mouse.y)
             if d < nearestD {
@@ -195,8 +329,11 @@ final class Critters: NSObject {
             }
             if d < 36 {
                 closeCount += 1
-                if let colonist = owner(c) {
-                    colonist.charge = ChargeLaw.clamp(colonist.charge - ChargeLaw.scareCost)
+                if now >= c.scareCool {
+                    c.scareCool = now + Self.scareCooldown
+                    if let colonist = owner(c) {
+                        colonist.charge = ChargeLaw.clamp(colonist.charge - ChargeLaw.scareCost)
+                    }
                 }
                 c.aim = nil
                 c.flee(from: mouse, now: now, boost: 1)
@@ -231,32 +368,53 @@ final class Critters: NSObject {
     private func maybeIdle(now: CFTimeInterval) {
         guard now >= nextIdle, !mouseWasNear,
               let c = yardBots().filter({ !$0.memory.refused && ChargeLaw.canTalk(owner($0)?.charge ?? 0) }).randomElement() else { return }
-        nextIdle = now + CGFloat.random(in: 55...95)
+        // Milestone bots reflect more often: shorter cooldown so the edge story surfaces.
+        nextIdle = now + (c.memory.hasBoundaryMilestone() ? CGFloat.random(in: 30...50) : CGFloat.random(in: 55...95))
         say(c.memory.stage() == .newborn ? .idle : .reflect, bot: c, other: nil)
     }
 
-    private func say(_ event: CritterTalk.Event, bot: Bot, other: Bot?, scene: String? = nil, replyTo: String? = nil) {
+    private func say(_ event: CritterTalk.Event, bot: Bot, other: Bot?, scene: String? = nil, replyTo: String? = nil, grudge: Int = 0) {
         Task { @MainActor in
-            _ = await utter(event, bot: bot, other: other, scene: scene, replyTo: replyTo)
+            _ = await utter(event, bot: bot, other: other, scene: scene, replyTo: replyTo, grudge: grudge)
         }
     }
 
+    /// Speech is muted at night and while the screen is locked; bodies keep moving.
+    private func isSilent() -> Bool {
+        if screenAsleep { return true }
+        return quietNights && Rhythm.isQuiet()
+    }
+
     @discardableResult
-    private func utter(_ event: CritterTalk.Event, bot: Bot, other: Bot?, scene: String? = nil, replyTo: String? = nil) async -> String? {
+    private func utter(_ event: CritterTalk.Event, bot: Bot, other: Bot?, scene: String? = nil, replyTo: String? = nil, grudge: Int = 0) async -> String? {
         guard !bot.memory.refused else { return nil }
+        if isSilent() { return nil }
         if event != .flee, !ChargeLaw.canTalk(owner(bot)?.charge ?? 0) { return nil }
         if event != .flee, owner(bot)?.post != .yard { return nil }
         let vibe = bot.mbti.vibe
         let otherVibe = other.map(\.mbti.vibe)
         let urgent = event == .flee || event == .chat || event == .scold
-        let app = scene ?? WindowOwner.at(bot.point)
+        let rawApp = scene ?? WindowOwner.at(bot.point)
+        let app = CritterTalk.shared.shareAppName ? rawApp : nil
+        let meetings = other.map { bot.memory.meetings(with: $0.id) } ?? 0
+        let pal = other.map { bot.mbti.fits($0.mbti) } ?? false
         if event == .linger || event == .idle, let app, !app.isEmpty {
             bot.memory.remember(.place, subject: app, detail: Copy.ui.linger(at: app))
         }
         let memory = bot.memory.context(kind: event.memoryKind, subject: other.map { String($0.id) })
         guard crawlOn, bots.contains(where: { $0 === bot }) else { return nil }
-        guard let line = await CritterTalk.shared.speak(event: event, vibe: vibe, other: otherVibe, app: app, urgent: urgent, memory: memory, replyTo: replyTo) else {
+        let milestone = event == .reflect && bot.memory.hasBoundaryMilestone()
+        guard let line = await CritterTalk.shared.speak(event: event, vibe: vibe, other: otherVibe, app: app, urgent: urgent, memory: memory, replyTo: replyTo, meetings: meetings, pal: pal, milestone: milestone, grudge: grudge) else {
             return nil
+        }
+        if event != .flee {
+            // Turn-taking at the display level: don't stack this bubble onto
+            // a still-visible bubble of either participant. Bubbles expire on
+            // their own, so waiting can't deadlock; the timeout only bounds
+            // how long a queued line holds the conversation.
+            await waitForBubbleTurn(bot: bot, other: other, timeout: 6)
+            guard crawlOn, bots.contains(where: { $0 === bot }) else { return nil }
+            if event != .flee, owner(bot)?.post != .yard { return nil }
         }
         if event == .reflect { bot.memory.reflect(line) }
         else { bot.memory.remember(.speech, subject: "self", detail: line) }
@@ -281,9 +439,11 @@ final class Critters: NSObject {
             var last: String?
             for _ in 0..<rounds {
                 guard crawlOn, bots.contains(where: { $0 === a }), bots.contains(where: { $0 === b }),
+                      a.pal === b, b.pal === a,
                       CACurrentMediaTime() < a.chatUntil else { return }
                 last = await utter(.chat, bot: a, other: b, replyTo: last)
                 guard crawlOn, bots.contains(where: { $0 === a }), bots.contains(where: { $0 === b }),
+                      a.pal === b, b.pal === a,
                       CACurrentMediaTime() < a.chatUntil else { return }
                 last = await utter(.chat, bot: b, other: a, replyTo: last)
             }
@@ -318,7 +478,7 @@ final class Critters: NSObject {
             owner(b)?.charge = ChargeLaw.clamp((owner(b)?.charge ?? 0) - ChargeLaw.bumpCost)
             guard a.canSocial(now: now), b.canSocial(now: now) else { continue }
             Bot.pairTalk(a, b, now: now, secs: 2.4...3.8)
-            say(.scold, bot: a, other: b)
+            say(.scold, bot: a, other: b, grudge: a.memory.collisions(with: b.id))
         }
     }
 
@@ -337,9 +497,39 @@ final class Critters: NSObject {
         }
     }
 
+    nonisolated static let bubbleDuration: CFTimeInterval = 2.3
+    /// Per-bot cooldown for the scare charge cost, so chasing doesn't drain per frame.
+    nonisolated static let scareCooldown: CFTimeInterval = 1.0
+
+    /// Yard bots plus freshly released (emerging) ones can be scattered by the
+    /// pointer. Homing bots are left alone so the trip back to the menu bar
+    /// isn't fought frame by frame.
+    nonisolated static func canScare(post: ChargeLaw.Post) -> Bool {
+        post == .yard || post == .emerging
+    }
+
+    /// Seconds to wait before showing a bubble while `existingUntil` is still visible.
+    nonisolated static func bubbleWaitSeconds(existingUntil: CFTimeInterval, now: CFTimeInterval) -> CFTimeInterval {
+        max(0, existingUntil - now)
+    }
+
+    private func bubbleVisible(_ bot: Bot?, now: CFTimeInterval) -> Bool {
+        guard let bot else { return false }
+        return bubbles.contains { $0.bot === bot && now < $0.until }
+    }
+
+    private func waitForBubbleTurn(bot: Bot, other: Bot?, timeout: CFTimeInterval) async {
+        let deadline = CACurrentMediaTime() + timeout
+        while CACurrentMediaTime() < deadline {
+            let now = CACurrentMediaTime()
+            if !bubbleVisible(bot, now: now), !bubbleVisible(other, now: now) { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
     @discardableResult
     private func popBubble(text: String, now: CFTimeInterval, bot: Bot?, at: CGPoint? = nil) -> Bubble {
-        if bubbles.count > 8 {
+        if bubbles.count >= bubbleCap {
             bubbles.removeFirst().kill()
         }
         let view = BubbleView(text: text)
@@ -349,7 +539,7 @@ final class Critters: NSObject {
         panel.contentView = view
         panel.setFrame(bubbleFrame(size: size, bot: bot, at: at), display: false)
         panel.orderFrontRegardless()
-        let bubble = Bubble(panel: panel, view: view, until: now + 2.3, bot: bot)
+        let bubble = Bubble(panel: panel, view: view, until: now + Self.bubbleDuration, bot: bot)
         bubbles.append(bubble)
         return bubble
     }
@@ -506,7 +696,7 @@ final class Critters: NSObject {
                                                   post: colonist.post)
             }
             colonist.bot?.energy = colonist.charge
-            colonist.bot?.limp = 1
+            colonist.bot?.limp = ChargeLaw.limp(for: colonist.charge)
         }
     }
 
@@ -568,7 +758,7 @@ final class Critters: NSObject {
         }
     }
 
-    private func shareCharge(dt: Double) {
+    private func shareCharge(now: CFTimeInterval, dt: Double) {
         let yard = colonists.filter { $0.post == .yard && $0.bot != nil }
         for i in 0..<yard.count {
             for j in (i + 1)..<yard.count {
@@ -576,12 +766,18 @@ final class Critters: NSObject {
                 let b = yard[j]
                 guard let pa = a.bot, let pb = b.bot, pa.screenIndex == pb.screenIndex else { continue }
                 guard hypot(pa.x - pb.x, pa.y - pb.y) < ChargeLaw.shareRadius else { continue }
+                let before = abs(a.charge - b.charge)
                 if a.charge >= b.charge {
                     let next = ChargeLaw.share(rich: a.charge, poor: b.charge, dt: dt)
                     a.charge = next.0; b.charge = next.1
                 } else {
                     let next = ChargeLaw.share(rich: b.charge, poor: a.charge, dt: dt)
                     b.charge = next.0; a.charge = next.1
+                }
+                // Visible feedback: a meaningful transfer briefly glows both bots.
+                if before > 0.04, abs(a.charge - b.charge) < before {
+                    a.highlightUntil = max(a.highlightUntil, now + 1.2)
+                    b.highlightUntil = max(b.highlightUntil, now + 1.2)
                 }
             }
         }
@@ -645,438 +841,5 @@ final class Critters: NSObject {
     private func clearBubbles() {
         bubbles.forEach { $0.kill() }
         bubbles = []
-    }
-}
-
-@MainActor
-private final class SwarmLayer {
-    let panel: NSPanel
-    let canvas: SwarmCanvas
-    let home: NSRect
-    let index: Int
-    init(panel: NSPanel, canvas: SwarmCanvas, home: NSRect, index: Int) {
-        self.panel = panel
-        self.canvas = canvas
-        self.home = home
-        self.index = index
-    }
-}
-
-@MainActor
-final class SwarmCanvas: NSView {
-    var bots: [Bot] = []
-    var lid: CGFloat = 0
-    var index = 0
-    var highlights: Set<Int> = []
-
-    override var isOpaque: Bool { false }
-    override var wantsDefaultClipping: Bool { false }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard let window else { return }
-        for bot in bots {
-            let size = bot.bodySize
-            let local = convert(window.convertPoint(fromScreen: bot.point), from: nil)
-            let g = CGRect(x: local.x - size / 2, y: local.y - size / 2, width: size, height: size)
-            let ctx = NSGraphicsContext.current!.cgContext
-            ctx.saveGState()
-            ctx.translateBy(x: local.x, y: local.y)
-            ctx.rotate(by: bot.angle)
-            ctx.translateBy(x: -local.x, y: -local.y)
-            RobotMark.drawBot(in: g, lid: lid, gait: bot.gait, speed: bot.speed, sit: bot.sit,
-                              tired: 1 - bot.limp, glow: highlights.contains(bot.id))
-            ctx.restoreGState()
-        }
-    }
-}
-
-@MainActor
-final class Bot {
-    enum Act {
-        case walk, sit, stand, flee, chat, edge
-    }
-
-    let id: Int
-    let mbti: MBTI
-    let memory: RobotMemory
-    var home: NSRect
-    let screenIndex: Int
-    var x: CGFloat
-    var y: CGFloat
-    var heading: CGFloat
-    var speed: CGFloat
-    var targetHeading: CGFloat
-    var targetSpeed: CGFloat
-    var angle: CGFloat
-    var bumpUntil: CFTimeInterval = 0
-    var steerUntil: CFTimeInterval = 0
-    var panicUntil: CFTimeInterval = 0
-    var chatUntil: CFTimeInterval = 0
-    var chatCool: CFTimeInterval = 0
-    var actUntil: CFTimeInterval = 0
-    var act: Act = .walk
-    var edge: Int = 0
-    weak var pal: Bot?
-    var traveled: CGFloat = 0
-    var sit: CGFloat = 0
-    var lastSpoken: String?
-    var aim: CGPoint?
-    var energy: Double = 1
-    var limp: Double = 1
-    var homebound = false
-    private var sepX: CGFloat = 0
-    private var sepY: CGFloat = 0
-    private let wander: CGFloat
-    private let gaitScale: CGFloat
-    var bodySize: CGFloat { memory.bodySize() }
-    var collisionRadius: CGFloat { bodySize * 0.6 + 1.5 }
-
-    var vx: CGFloat { cos(heading) * speed }
-    var vy: CGFloat { sin(heading) * speed }
-    var planted: Bool { act == .sit || act == .stand || act == .chat }
-    var point: CGPoint { CGPoint(x: x, y: y) }
-    var gait: CGFloat { traveled * gaitScale }
-    var label: String { String(format: "%02d %@", id, mbti.code) }
-
-    init(id: Int, mbti: MBTI, home: NSRect, screenIndex: Int,
-         memory: RobotMemory? = nil) {
-        self.id = id
-        self.mbti = mbti
-        self.memory = memory ?? RobotMemory(id: id, personality: mbti.rawValue)
-        self.home = home
-        self.screenIndex = screenIndex
-        let inset = home.insetBy(dx: 48, dy: 48)
-        x = CGFloat.random(in: inset.minX...max(inset.minX + 1, inset.maxX))
-        y = CGFloat.random(in: inset.minY...max(inset.minY + 1, inset.maxY))
-        heading = CGFloat.random(in: 0..<(2 * .pi))
-        targetHeading = heading
-        speed = CGFloat.random(in: 28...52)
-        targetSpeed = speed
-        angle = heading - .pi / 2
-        wander = CGFloat.random(in: 0.5...1.4)
-        gaitScale = 0.12
-        actUntil = CACurrentMediaTime() + CGFloat.random(in: 1.5...4)
-    }
-
-    func canSocial(now: CFTimeInterval) -> Bool {
-        now > panicUntil && now > chatUntil && now > chatCool && act != .flee && aim == nil
-    }
-
-    static func pairTalk(_ a: Bot, _ b: Bot, now: CFTimeInterval, secs: ClosedRange<CGFloat> = 3.4...5.6) {
-        parkFacing(a, b)
-        a.lockTalk(with: b, now: now, secs: secs)
-        b.lockTalk(with: a, now: now, secs: secs)
-    }
-
-    private static func parkFacing(_ a: Bot, _ b: Bot) {
-        a.face(b)
-        b.face(a)
-        a.speed = 0
-        b.speed = 0
-        a.targetSpeed = 0
-        b.targetSpeed = 0
-    }
-
-    private func lockTalk(with other: Bot, now: CFTimeInterval, secs: ClosedRange<CGFloat>) {
-        pal = other
-        act = .chat
-        chatUntil = now + CGFloat.random(in: secs)
-        actUntil = chatUntil
-        chatCool = chatUntil + 18
-        bumpUntil = chatUntil
-        speed = 0
-        targetSpeed = 0
-    }
-
-    private func face(_ other: Bot) {
-        heading = atan2(other.y - y, other.x - x)
-        targetHeading = heading
-        angle = heading - .pi / 2
-    }
-
-    func flee(from mouse: CGPoint, now: CFTimeInterval, boost: CGFloat) {
-        if now >= panicUntil {
-            memory.remember(.mouse, detail: Copy.ui.flee)
-        }
-        pal = nil
-        chatUntil = 0
-        aim = nil
-        act = .flee
-        let dx = x - mouse.x
-        let dy = y - mouse.y
-        let away = atan2(dy == 0 && dx == 0 ? CGFloat.random(in: -1...1) : dy, dx == 0 ? 0.01 : dx)
-        heading = away
-        targetHeading = away
-        let burst = 90 + 140 * boost
-        speed = max(speed, burst)
-        targetSpeed = burst
-        panicUntil = now + 0.4 + 0.35 * boost
-        actUntil = panicUntil
-        steerUntil = panicUntil
-    }
-
-    func headHome(to target: CGPoint) {
-        homebound = true
-        pal = nil
-        chatUntil = 0
-        chatCool = 0
-        panicUntil = 0
-        bumpUntil = 0
-        act = .walk
-        aim = target
-        heading = atan2(target.y - y, target.x - x)
-        targetHeading = heading
-        speed = max(speed, 24)
-        targetSpeed = 38
-        sit = 0
-    }
-
-    func separate(from others: [Bot]) {
-        sepX = 0
-        sepY = 0
-        guard act != .chat, act != .sit, act != .stand, aim == nil else { return }
-        var n: CGFloat = 0
-        for o in others {
-            if o === self || o.screenIndex != screenIndex { continue }
-            let dx = x - o.x
-            let dy = y - o.y
-            let d = hypot(dx, dy)
-            let personalSpace = collisionRadius + o.collisionRadius + spacing(to: o)
-            if d < 0.01 || d > personalSpace { continue }
-            let w = (personalSpace - d) / personalSpace
-            sepX += dx / d * w
-            sepY += dy / d * w
-            n += 1
-        }
-        if n > 0 {
-            sepX /= n
-            sepY /= n
-        }
-    }
-
-    private func spacing(to other: Bot) -> CGFloat { 10 }
-
-    func step(now: CFTimeInterval, dt: CGFloat) {
-        if now < panicUntil {
-            act = .flee
-            targetSpeed = max(70, targetSpeed * (1 - dt * 0.55))
-            heading = lerpAngle(heading, targetHeading, 1 - exp(-dt * 9))
-            speed += (targetSpeed - speed) * (1 - exp(-dt * 10))
-        } else if now < chatUntil, pal != nil {
-            act = .chat
-            speed = 0
-            targetSpeed = 0
-        } else if let aim {
-            let dx = aim.x - x
-            let dy = aim.y - y
-            let d = hypot(dx, dy)
-            if d < 8 {
-                speed = 0
-                targetSpeed = 0
-                act = .sit
-            } else {
-                act = .walk
-                targetHeading = atan2(dy, dx)
-                heading = lerpAngle(heading, targetHeading, 1 - exp(-dt * 4.2))
-                targetSpeed = 38 * limp
-                speed += (targetSpeed - speed) * (1 - exp(-dt * 3))
-            }
-        } else {
-            if now > actUntil { pickAct(now: now) }
-            switch act {
-            case .sit, .stand, .chat:
-                targetSpeed = 0
-                speed = 0
-            case .edge:
-                crawlEdge()
-            case .walk, .flee:
-                if now > steerUntil {
-                    steerUntil = now + CGFloat.random(in: 1.6...3.8)
-                    targetHeading = heading + CGFloat.random(in: -0.8...0.8)
-                    targetSpeed = CGFloat.random(in: 28...58)
-                }
-                heading += sin(now * wander + traveled * 0.02) * 0.4 * dt
-                heading = lerpAngle(heading, targetHeading, 1 - exp(-dt * 3.2))
-                speed += (targetSpeed - speed) * (1 - exp(-dt * 2.4))
-            }
-        }
-        if planted {
-            speed = 0
-            targetSpeed = 0
-            sepX = 0
-            sepY = 0
-        } else {
-            if hypot(sepX, sepY) > 0.08 {
-                targetHeading = lerpAngle(targetHeading, atan2(sepY, sepX), 0.22)
-            }
-            x += cos(heading) * speed * dt
-            y += sin(heading) * speed * dt
-            if speed > 8 { traveled += speed * dt }
-            if aim == nil { bounce() }
-        }
-        if aim == nil { clampHome() }
-        let wantSit: CGFloat = (act == .sit || act == .chat) ? 1 : 0
-        sit += (wantSit - sit) * (1 - exp(-dt * 8))
-        if act != .chat {
-            angle = lerpAngle(angle, heading - .pi / 2, 1 - exp(-dt * 7))
-        }
-    }
-
-    func clampHome() {
-        let pad: CGFloat = 28
-        x = min(max(x, home.minX + pad), home.maxX - pad)
-        y = min(max(y, home.minY + pad), home.maxY - pad)
-    }
-
-    func deflect(away normal: CGPoint, now: Double) {
-        guard act != .chat, !planted, speed > 8, aim == nil else { return }
-        let inward = vx * normal.x + vy * normal.y
-        guard inward < 0 else { return }
-        var slide = CGPoint(x: vx - normal.x * inward, y: vy - normal.y * inward)
-        if hypot(slide.x, slide.y) < 1 {
-            slide = CGPoint(x: -normal.y * speed, y: normal.x * speed)
-        }
-        heading = atan2(slide.y, slide.x)
-        targetHeading = heading
-        speed = min(speed, hypot(slide.x, slide.y))
-        targetSpeed = speed
-        steerUntil = now + 0.6
-        if act == .edge {
-            act = .walk
-            actUntil = now + 0.6
-        }
-    }
-
-    private func pickAct(now: CFTimeInterval) {
-        let roll = CGFloat.random(in: 0...1)
-        if roll < 0.28 {
-            act = .sit
-            actUntil = now + CGFloat.random(in: 1.2...3.4)
-        } else if roll < 0.46 {
-            act = .stand
-            actUntil = now + CGFloat.random(in: 0.6...1.8)
-        } else if roll < 0.62 + 0.18 * memory.maturity() {
-            act = .edge
-            edge = nearestEdge()
-            actUntil = now + CGFloat.random(in: 2.5...5.5)
-            targetSpeed = CGFloat.random(in: 24...40)
-        } else {
-            act = .walk
-            actUntil = now + CGFloat.random(in: 1.8...4.5)
-            targetSpeed = CGFloat.random(in: 28...58)
-        }
-        targetSpeed *= 1 - 0.25 * memory.maturity()
-    }
-
-    private func nearestEdge() -> Int {
-        let vf = home.insetBy(dx: 28, dy: 28)
-        let distances = [y - vf.minY, vf.maxX - x, vf.maxY - y, x - vf.minX]
-        return distances.indices.min { distances[$0] < distances[$1] } ?? 0
-    }
-
-    private func crawlEdge() {
-        let vf = home.insetBy(dx: 28, dy: 28)
-        let v = max(18, targetSpeed)
-        let tolerance: CGFloat = 0.001
-        let distance = [y - vf.minY, vf.maxX - x, vf.maxY - y, x - vf.minX][edge]
-        if distance > tolerance {
-            // Approach the boundary through the regular movement step; never teleport.
-            let approach: [CGFloat] = [-.pi / 2, 0, .pi / 2, .pi]
-            heading = approach[edge]
-        } else {
-            memory.visitEdge(edge)
-            switch edge {
-            case 0 where x >= vf.maxX - tolerance: edge = 1
-            case 1 where y >= vf.maxY - tolerance: edge = 2
-            case 2 where x <= vf.minX + tolerance: edge = 3
-            case 3 where y <= vf.minY + tolerance: edge = 0
-            default: break
-            }
-            let tangent: [CGFloat] = [0, .pi / 2, .pi, -.pi / 2]
-            heading = tangent[edge]
-        }
-        // Separation must not push an edge walker away from its boundary each frame.
-        sepX = 0
-        sepY = 0
-        targetHeading = heading
-        targetSpeed = v
-        speed = v
-    }
-
-    private func bounce() {
-        let pad: CGFloat = 28
-        let minX = home.minX + pad
-        let maxX = home.maxX - pad
-        let minY = home.minY + pad
-        let maxY = home.maxY - pad
-        if x < minX { x = minX; heading = atan2(sin(heading), abs(cos(heading))) }
-        if x > maxX { x = maxX; heading = atan2(sin(heading), -abs(cos(heading))) }
-        if y < minY { y = minY; heading = atan2(abs(sin(heading)), cos(heading)) }
-        if y > maxY { y = maxY; heading = atan2(-abs(sin(heading)), cos(heading)) }
-    }
-}
-
-private func lerpAngle(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat {
-    var d = b - a
-    while d > .pi { d -= 2 * .pi }
-    while d < -.pi { d += 2 * .pi }
-    return a + d * min(1, max(0, t))
-}
-
-
-@MainActor
-private final class Bubble {
-    let panel: NSPanel
-    let view: BubbleView
-    let until: CFTimeInterval
-    weak var bot: Bot?
-    init(panel: NSPanel, view: BubbleView, until: CFTimeInterval, bot: Bot?) {
-        self.panel = panel
-        self.view = view
-        self.until = until
-        self.bot = bot
-    }
-    func kill() { panel.orderOut(nil) }
-}
-
-@MainActor
-final class BubbleView: NSView {
-    let text: String
-    var fitting: NSSize {
-        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        let w = (text as NSString).size(withAttributes: [.font: font]).width
-        return NSSize(width: ceil(w) + 16, height: 22)
-    }
-
-    init(text: String) {
-        self.text = text
-        super.init(frame: .zero)
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let r = bounds.insetBy(dx: 0.5, dy: 0.5)
-        let path = NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8)
-        NSColor.black.withAlphaComponent(0.72).setFill()
-        path.fill()
-        NSColor.white.withAlphaComponent(0.18).setStroke()
-        path.lineWidth = 1
-        path.stroke()
-        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        let p = NSMutableParagraphStyle()
-        p.alignment = .center
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.white,
-            .paragraphStyle: p,
-        ]
-        let textSize = (text as NSString).size(withAttributes: attrs)
-        let y = ((bounds.height - textSize.height) / 2).rounded(.toNearestOrAwayFromZero)
-        (text as NSString).draw(
-            in: CGRect(x: 0, y: y, width: bounds.width, height: textSize.height),
-            withAttributes: attrs
-        )
     }
 }

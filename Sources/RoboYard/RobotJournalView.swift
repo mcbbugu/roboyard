@@ -22,6 +22,15 @@ struct RobotJournalView: View {
                         Text(copy.journalLadder)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Button(copy.exportMemories) {
+                                NSWorkspace.shared.activateFileViewerSelecting([store.fileURL])
+                            }
+                            Button(copy.clearMemories) {
+                                confirmClear()
+                            }
+                        }
+                        .font(.caption)
                     }
 
                     if let error = store.errorMessage {
@@ -86,5 +95,17 @@ struct RobotJournalView: View {
         }
         .frame(minWidth: 520, minHeight: 400)
         .id(voice.stamp)
+    }
+
+    private func confirmClear() {
+        let copy = Copy.ui
+        let alert = NSAlert()
+        alert.messageText = copy.clearTitle
+        alert.informativeText = copy.clearBody
+        alert.addButton(withTitle: copy.clearConfirm)
+        alert.addButton(withTitle: copy.cancel)
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        store.clearAll()
     }
 }

@@ -61,8 +61,16 @@ struct YardRow: Identifiable {
     let refused: Bool
     let bodySize: Double
     let worldVisible: Bool
+    let friendBadge: String?
 
     var tired: CGFloat { CGFloat(1 - ChargeLaw.limp(for: charge)) }
+
+    /// Estimated minutes left on the desk at walking drain. Nil when charging.
+    var minutesLeft: Int? {
+        guard post != .warehouse else { return nil }
+        let usable = max(0, charge - ChargeLaw.goHomeBelow)
+        return Int((usable / ChargeLaw.walkDrain) / 60)
+    }
 
     var canToggle: Bool {
         guard worldVisible else { return false }

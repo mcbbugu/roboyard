@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             await CritterTalk.shared.refreshStatus()
             refresh()
         }
+        maybeOnboard()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -52,6 +53,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         show.target = self
         show.state = visible ? .on : .off
         menu.addItem(show)
+        let saver = NSMenuItem(title: copy.powerSaver, action: #selector(toggleSaver), keyEquivalent: "")
+        saver.target = self
+        saver.state = Critters.shared.powerSaver ? .on : .off
+        saver.toolTip = copy.powerHint
+        menu.addItem(saver)
+        let shareApp = NSMenuItem(title: copy.shareAppName, action: #selector(toggleShareApp), keyEquivalent: "")
+        shareApp.target = self
+        shareApp.state = CritterTalk.shared.shareAppName ? .on : .off
+        shareApp.toolTip = copy.shareAppHint
+        menu.addItem(shareApp)
+        let pet = NSMenuItem(title: copy.petClick, action: #selector(togglePetClick), keyEquivalent: "")
+        pet.target = self
+        pet.state = Critters.shared.petClick ? .on : .off
+        pet.toolTip = copy.petHint
+        menu.addItem(pet)
+        let left = Critters.shared.feedCooldownLeft()
+        let feed = NSMenuItem(title: left == 0 ? copy.feedDesk : copy.feedWait(left),
+                              action: #selector(feedDesk), keyEquivalent: "f")
+        feed.target = self
+        feed.isEnabled = left == 0
+        menu.addItem(feed)
+        let quiet = NSMenuItem(title: copy.quietNights, action: #selector(toggleQuiet), keyEquivalent: "")
+        quiet.target = self
+        quiet.state = Critters.shared.quietNights ? .on : .off
+        quiet.toolTip = copy.quietHint
+        menu.addItem(quiet)
         menu.addItem(countMenu())
         let yard = NSMenuItem(title: copy.warehouseMenu, action: #selector(openWarehouse), keyEquivalent: "y")
         yard.target = self
@@ -149,11 +176,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func pickProvider(_ sender: NSMenuItem) {
         let talk = CritterTalk.shared
-        if sender.tag == 1, talk.apiKey.isEmpty {
-            editTalk()
-            return
+        if sender.tag == 1 {
+            if talk.apiKey.isEmpty {
+                editTalk()
+                return
+            }
+            guard confirmCloud() else { return }
+            talk.provider = .deepseek
+        } else {
+            talk.provider = .ollama
         }
-        talk.provider = sender.tag == 1 ? .deepseek : .ollama
         Task { @MainActor in
             await talk.refreshStatus()
             refresh()
@@ -174,6 +206,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleCrawl() {
         Critters.shared.crawlOn.toggle()
         refresh()
+    }
+
+    @objc private func toggleSaver() {
+        Critters.shared.powerSaver.toggle()
+        refresh()
+    }
+
+    @objc private func toggleShareApp() {
+        CritterTalk.shared.shareAppName.toggle()
+        refresh()
+    }
+
+    @objc private func togglePetClick() {
+        Critters.shared.petClick.toggle()
+        refresh()
+    }
+
+    @objc private func feedDesk() {
+        Critters.shared.feedDesk()
+        refresh()
+    }
+
+    @objc private func toggleQuiet() {
+        Critters.shared.quietNights.toggle()
+        refresh()
+    }
+
+    private func maybeOnboard() {
+        guard UserDefaults.standard.object(forKey: Rhythm.onboardKey) == nil else { return }
+        UserDefaults.standard.set(true, forKey: Rhythm.onboardKey)
+        let copy = Copy.ui
+        let alert = NSAlert()
+        alert.messageText = copy.onboardTitle
+        alert.informativeText = copy.onboardBody
+        alert.addButton(withTitle: copy.ok)
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    private func confirmCloud() -> Bool {
+        let copy = Copy.ui
+        let alert = NSAlert()
+        alert.messageText = copy.cloudTitle
+        alert.informativeText = copy.cloudBody
+        alert.addButton(withTitle: copy.continueCloud)
+        alert.addButton(withTitle: copy.cancel)
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     @objc private func editTalk() {
@@ -205,6 +285,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let selected: CritterTalk.Provider = source.indexOfSelectedItem == 1 ? .deepseek : .ollama
+        if selected == .deepseek, talk.provider != .deepseek {
+            guard confirmCloud() else { return }
+        }
         let typed = modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         talk.provider = selected
         if selected == .deepseek {

@@ -90,6 +90,7 @@ struct WarehouseView: View {
 
 private struct WarehouseCard: View {
     let row: YardRow
+    @State private var renaming = false
 
     var body: some View {
         Button(action: pick) {
@@ -103,11 +104,23 @@ private struct WarehouseCard: View {
                 }
                 Text(row.name)
                     .font(.callout.weight(.medium))
+                if let badge = row.friendBadge {
+                    Text(badge)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                }
                 Text("\(row.code) · \(row.stage)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 ChargeMeter(level: row.charge)
+                if let mins = row.minutesLeft {
+                    Text(Copy.ui.minutesLeft(mins))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Text(row.action)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(row.canToggle ? Color.accentColor : Color.secondary)
@@ -123,6 +136,12 @@ private struct WarehouseCard: View {
         .buttonStyle(PressCardStyle())
         .disabled(!row.canToggle)
         .help(row.hint)
+        .contextMenu {
+            Button(Copy.ui.renameTitle) { renaming = true }
+        }
+        .sheet(isPresented: $renaming) {
+            RenameSheet(row: row, isPresented: $renaming)
+        }
     }
 
     private var border: Color {
@@ -166,5 +185,38 @@ private struct PressCardStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+private struct RenameSheet: View {
+    let row: YardRow
+    @Binding var isPresented: Bool
+    @State private var text: String = ""
+
+    var body: some View {
+        let copy = Copy.ui
+        VStack(alignment: .leading, spacing: 12) {
+            Text(copy.renameTitle).font(.headline)
+            Text(copy.renameBody).font(.caption).foregroundStyle(.secondary)
+            TextField(row.name, text: $text)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Spacer()
+                Button(copy.cancel) { isPresented = false }
+                    .keyboardShortcut(.cancelAction)
+                Button(copy.ok) {
+                    Critters.shared.rename(row.id, to: text)
+                    isPresented = false
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 300)
+        .onAppear {
+            if let colonist = Critters.shared.colonists.first(where: { $0.id == row.id }) {
+                text = colonist.memory.nickname ?? ""
+            }
+        }
     }
 }
