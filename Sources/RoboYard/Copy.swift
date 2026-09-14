@@ -280,6 +280,12 @@ struct Copy {
         }
         return chatOpen(other)
     }
+    /// Reunion after a long absence. `memory` is one old line about them.
+    func reunionOpen(other: String, gapDays: Int, memory: String?) -> String {
+        let quote = (memory?.isEmpty == false) ? t("还记得：\(memory!)。", "Remember: \(memory!).") : ""
+        return t("跟\(other)好久没见（约\(gapDays)天），先打个久别重逢的招呼。\(quote)别另起无关话题。",
+                 "You haven't seen \(other) in about \(gapDays) days. Greet them like a reunion. \(quote)Don't change the subject.")
+    }
     func withPal(_ id: String, times: Int) -> String {
         t("眼前是\(id)号，你们聊过\(times)次。", "No. \(id) is here; you’ve talked \(times) times.")
     }

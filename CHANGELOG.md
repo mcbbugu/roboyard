@@ -1,6 +1,13 @@
 # Changelog
 
-## 5.1.0 — 2026-09-14
+## 6.0.0 — 2026-09-14
+
+Old friends reminisce (#5).
+
+- Per-relationship `lastMet` + `gap` (seconds since previous encounter); `gap` refreshes on every attempt while meeting counters still respect memory cooldowns. Dead `gap/reach` fields finally have a writer.
+- `reminiscence(about:)`: oldest stored line about that robot, quoted when reuniting.
+- Reunion opener past 24h absence + 3 meetings, only on conversation openers (follow-ups still thread the last line).
+- Decode-tolerant `RobotRelationship.init(from:)` so old snapshots load; locale-pinned reunion tests (CI runs English).
 
 Sneak vs swipe (#4).
 

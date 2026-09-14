@@ -25,6 +25,23 @@ struct RobotRelationship: Codable {
     var collisions = 0
     var gap: Double?
     var reach: Double?
+    /// Last encounter wall-clock. Decoded tolerantly (see init(from:)).
+    var lastMet: Date? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case meetings, collisions, gap, reach, lastMet
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        meetings = try c.decodeIfPresent(Int.self, forKey: .meetings) ?? 0
+        collisions = try c.decodeIfPresent(Int.self, forKey: .collisions) ?? 0
+        gap = try c.decodeIfPresent(Double.self, forKey: .gap)
+        reach = try c.decodeIfPresent(Double.self, forKey: .reach)
+        lastMet = try c.decodeIfPresent(Date.self, forKey: .lastMet)
+    }
 }
 
 // Profiles are owned and mutated by the main-actor store and Bot instances.
@@ -89,6 +106,22 @@ final class RobotMemory: Codable, Identifiable {
 
     func collisions(with otherID: Int) -> Int {
         relationships[otherID]?.collisions ?? 0
+    }
+
+    /// Seconds since the previous encounter with them, if any.
+    func gap(with otherID: Int) -> TimeInterval? {
+        relationships[otherID]?.gap
+    }
+
+    /// Oldest stored line about that robot — what reunions quote.
+    func reminiscence(about otherID: Int) -> String? {
+        let subject = "\(otherID)"
+        let pool = experiences + keyMemories.values.filter { m in
+            !experiences.contains { $0.id == m.id }
+        }
+        return pool.filter {
+            ($0.kind == .friend || $0.kind == .collision) && $0.subject == subject
+        }.min { $0.date < $1.date }?.detail
     }
 
     // Strangers trade one line each. Old friends keep going.
@@ -159,10 +192,17 @@ final class RobotMemory: Codable, Identifiable {
 
     func meet(_ otherID: Int, friendly: Bool, now: Date = .now, lang: AppLang = .current) {
         guard otherID != id else { return }
+        var relationship = relationships[otherID] ?? RobotRelationship()
+        // Gap tracks wall-clock absence on every encounter attempt; counters
+        // still only move when the memory actually records (cooldowns intact).
+        if let prev = relationship.lastMet {
+            relationship.gap = now.timeIntervalSince(prev)
+        }
+        relationship.lastMet = now
+        relationships[otherID] = relationship
         let copy = Copy(lang: lang)
         let detail = friendly ? copy.chatted(otherID) : copy.bumped(otherID)
         guard remember(friendly ? .friend : .collision, subject: "\(otherID)", detail: detail, now: now) else { return }
-        var relationship = relationships[otherID] ?? RobotRelationship()
         if friendly { relationship.meetings += 1 } else { relationship.collisions += 1 }
         relationships[otherID] = relationship
     }

@@ -431,7 +431,13 @@ final class Critters: NSObject {
         let memory = bot.memory.context(kind: event.memoryKind, subject: other.map { String($0.id) })
         guard crawlOn, bots.contains(where: { $0 === bot }) else { return nil }
         let milestone = event == .reflect && bot.memory.hasBoundaryMilestone()
-        guard let line = await CritterTalk.shared.speak(event: event, vibe: vibe, other: otherVibe, app: app, urgent: urgent, memory: memory, replyTo: replyTo, meetings: meetings, pal: pal, milestone: milestone, grudge: grudge) else {
+        let reunion: (gap: TimeInterval, line: String?)? = if event == .chat, replyTo == nil,
+            let peer = other, let gap = bot.memory.gap(with: peer.id) {
+            (gap, bot.memory.reminiscence(about: peer.id))
+        } else {
+            nil
+        }
+        guard let line = await CritterTalk.shared.speak(event: event, vibe: vibe, other: otherVibe, app: app, urgent: urgent, memory: memory, replyTo: replyTo, meetings: meetings, pal: pal, milestone: milestone, grudge: grudge, reunion: reunion) else {
             return nil
         }
         if event != .flee {

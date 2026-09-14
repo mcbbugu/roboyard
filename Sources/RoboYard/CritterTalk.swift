@@ -61,6 +61,8 @@ final class CritterTalk {
     private var lastDedupLine: String?
     private let dedupWindow: CFTimeInterval = 30
     private let maxQueue = 8
+    /// Absence that turns an opener into a reunion.
+    nonisolated static let reunionAfter: TimeInterval = 86_400
 
     private struct Waiter {
         let urgent: Bool
@@ -125,7 +127,7 @@ final class CritterTalk {
         }
     }
 
-    func speak(event: Event, vibe: String, other: String?, app: String?, urgent: Bool, memory: String, replyTo: String? = nil, meetings: Int = 0, pal: Bool = false, milestone: Bool = false, grudge: Int = 0) async -> String? {
+    func speak(event: Event, vibe: String, other: String?, app: String?, urgent: Bool, memory: String, replyTo: String? = nil, meetings: Int = 0, pal: Bool = false, milestone: Bool = false, grudge: Int = 0, reunion: (gap: TimeInterval, line: String?)? = nil) async -> String? {
         let key = Self.dedupKey(event: event, other: other, replyTo: replyTo)
         let now0 = CACurrentMediaTime()
         if let line = cachedLine(for: key, now: now0) { return line }
@@ -145,6 +147,10 @@ final class CritterTalk {
         case .chat:
             if let cue = Self.chatFollowUp(replyTo: replyTo, lang: copy.lang) {
                 user += cue
+            } else if let reunion, reunion.gap >= Self.reunionAfter, meetings >= 3 {
+                user += copy.reunionOpen(other: other ?? copy.palFallback,
+                                         gapDays: max(1, Int(reunion.gap / 86_400)),
+                                         memory: reunion.line)
             } else {
                 user += copy.chatOpenFor(other: other ?? copy.palFallback, meetings: meetings, pal: pal)
             }
