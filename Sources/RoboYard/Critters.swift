@@ -159,7 +159,8 @@ final class Critters: NSObject {
             let badge: String? = badges.isEmpty ? nil : badges.joined(separator: " · ")
             return YardRow(id: c.id, name: c.name, code: c.mbti.code, stage: c.memory.stage().title,
                            charge: c.charge, post: c.post, refused: c.memory.refused,
-                           bodySize: c.memory.bodySize(), worldVisible: crawlOn, friendBadge: badge)
+                           bodySize: c.memory.bodySize(), worldVisible: crawlOn, friendBadge: badge,
+                           group: c.mbti.group, stageLevel: c.memory.stage().rawValue)
         }
     }
 
@@ -205,7 +206,20 @@ final class Critters: NSObject {
               let bot = colonist.bot,
               PetLaw.canPet(lastPet: bot.petCool, now: now)
         else { return }
-        pet(colonist, bot: bot, now: now)
+        // Same display-level turn-taking as model lines (fixes #1):
+        // wait for visible bubbles to expire, then re-validate so rapid
+        // double-clicks can't double-apply.
+        Task { @MainActor [weak self, weak bot, weak colonist] in
+            guard let self, let bot, let colonist else { return }
+            await self.waitForBubbleTurn(bot: bot, other: nil, timeout: 3)
+            let later = CACurrentMediaTime()
+            guard self.crawlOn,
+                  colonist.post == .yard || colonist.post == .emerging,
+                  self.bots.contains(where: { $0 === bot }),
+                  PetLaw.canPet(lastPet: bot.petCool, now: later)
+            else { return }
+            self.pet(colonist, bot: bot, now: later)
+        }
     }
 
     private func pet(_ colonist: Colonist, bot: Bot, now: CFTimeInterval) {

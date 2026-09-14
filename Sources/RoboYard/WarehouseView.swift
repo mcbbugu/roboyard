@@ -96,7 +96,8 @@ private struct WarehouseCard: View {
         Button(action: pick) {
             VStack(spacing: 8) {
                 ZStack(alignment: .topTrailing) {
-                    RobotPortrait(size: max(18, row.bodySize), tired: row.tired, glow: row.post == .warehouse && row.charge < ChargeLaw.emergeAbove)
+                    RobotPortrait(size: max(18, row.bodySize), tired: row.tired, glow: row.post == .warehouse && row.charge < ChargeLaw.emergeAbove,
+                                      accent: RobotMark.accent(for: row.group), stage: row.stageLevel, energy: row.charge)
                         .frame(height: 56)
                     Text(String(format: "%02d", row.id))
                         .font(.system(.caption2, design: .monospaced).weight(.semibold))

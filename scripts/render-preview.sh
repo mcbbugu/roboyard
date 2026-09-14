@@ -5,8 +5,11 @@ cd "$ROOT"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p docs/assets Resources "$WORK/RoboYard.iconset"
+# Compile the whole app (minus the @main entry, which Preview replaces)
+# so this can never rot behind a stale file list again.
+SRCS=(Sources/RoboYard/*.swift)
 swiftc -O -parse-as-library -module-cache-path "$WORK/cache" \
-  Sources/RoboYard/{RobotMemory,MBTI,CritterTalk,RobotMark,Critters,BotPhysics}.swift \
+  "${SRCS[@]/Sources\/RoboYard\/RoboYardApp.swift}" \
   scripts/Preview.swift -o "$WORK/render"
 "$WORK/render" "$WORK/frames"
 cp "$WORK/frames/world.gif" docs/assets/world.gif

@@ -25,18 +25,19 @@ final class SwarmCanvas: NSView {
     override var wantsDefaultClipping: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let window else { return }
+        guard let window, let ctx = NSGraphicsContext.current?.cgContext else { return }
         for bot in bots {
             let size = bot.bodySize
             let local = convert(window.convertPoint(fromScreen: bot.point), from: nil)
             let g = CGRect(x: local.x - size / 2, y: local.y - size / 2, width: size, height: size)
-            let ctx = NSGraphicsContext.current!.cgContext
             ctx.saveGState()
             ctx.translateBy(x: local.x, y: local.y)
             ctx.rotate(by: bot.angle)
             ctx.translateBy(x: -local.x, y: -local.y)
             RobotMark.drawBot(in: g, lid: lid, gait: bot.gait, speed: bot.speed, sit: bot.sit,
-                              tired: 1 - bot.limp, glow: highlights.contains(bot.id))
+                              tired: 1 - bot.limp, glow: highlights.contains(bot.id),
+                              accent: RobotMark.accent(for: bot.mbti.group),
+                              stage: bot.memory.stage().rawValue, energy: bot.energy)
             ctx.restoreGState()
         }
     }

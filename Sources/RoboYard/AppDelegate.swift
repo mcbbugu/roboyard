@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private var statusItem: NSStatusItem!
+    private var statusItem: NSStatusItem?
     private let robotView = RobotIconView()
     private var journalWindow: NSWindow?
     private var warehouseWindow: NSWindow?
@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func refresh() {
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem?.button else { return }
         let visible = Critters.shared.crawlOn
         button.title = ""
         button.image = nil
@@ -95,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         quit.target = self
         menu.addItem(quit)
         menu.delegate = self
-        statusItem.menu = menu
+        statusItem?.menu = menu
         journalWindow?.title = copy.journalTitle
         warehouseWindow?.title = copy.warehouseTitle
     }
@@ -106,8 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menuPulse = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                self.statusItem.menu?.item(withTag: 98)?.title = Critters.shared.summaryLine
-                self.statusItem.menu?.item(withTag: 99)?.title = CritterTalk.shared.statusLine
+                self.statusItem?.menu?.item(withTag: 98)?.title = Critters.shared.summaryLine
+                self.statusItem?.menu?.item(withTag: 99)?.title = CritterTalk.shared.statusLine
             }
         }
         RunLoop.main.add(menuPulse!, forMode: .common)

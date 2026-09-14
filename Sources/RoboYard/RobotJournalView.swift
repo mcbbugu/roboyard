@@ -40,7 +40,10 @@ struct RobotJournalView: View {
                     ForEach(store.profiles) { profile in
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(spacing: 12) {
-                                RobotPortrait(size: profile.bodySize())
+                                let charge = Critters.shared.colonists.first(where: { $0.id == profile.id })?.charge ?? 1
+                                RobotPortrait(size: profile.bodySize(),
+                                              accent: RobotMark.accent(for: profile.mbti.group),
+                                              stage: profile.stage().rawValue, energy: charge)
                                     .frame(width: 56, height: 56)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("\(profile.name) · \(profile.stage().title)")

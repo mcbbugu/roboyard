@@ -1,6 +1,14 @@
 # Changelog
 
-## 4.0.0 — 2026-09-14
+## 5.0.0 — 2026-09-14
+
+The robots get faces.
+
+- Personality accents (NT purple / NF pink / SJ teal / SP orange) as cheek dots + antenna tips, on the desk and in warehouse/journal portraits.
+- Growth antennae: curious nub, thoughtful stalk, awakened spark; sleepy eyes when tired (`max(blink, tired*0.55)`).
+- On-desk battery bar under each robot, same thresholds as the warehouse meter; hidden at full charge so icons and previews stay clean.
+- Bug fixes: pet bubbles join display-level turn-taking instead of stacking (#1); `NSGraphicsContext.current` and `statusItem` unwraps hardened (#2); `render-preview.sh` was stale-broken and now compiles the whole app minus `@main` so it can't rot again.
+- Preview assets regenerated with the fixed script.
 
 Bigger yard, shippable.
 

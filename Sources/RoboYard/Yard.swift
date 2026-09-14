@@ -62,6 +62,9 @@ struct YardRow: Identifiable {
     let bodySize: Double
     let worldVisible: Bool
     let friendBadge: String?
+    /// MBTI group (NT/NF/SJ/SP) for the portrait accent, and growth stage 0–3.
+    let group: String
+    let stageLevel: Int
 
     var tired: CGFloat { CGFloat(1 - ChargeLaw.limp(for: charge)) }
 
